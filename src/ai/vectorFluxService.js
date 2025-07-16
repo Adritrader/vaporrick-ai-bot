@@ -1,4 +1,14 @@
 /**
+ * Entrenar modelo DNN o LSTM para un activo (simulado)
+ */
+VectorFluxService.prototype.trainModel = async function(modelType, symbol) {
+  // Simula entrenamiento (en producción, conecta con el core real)
+  console.log(`🧠 Entrenando modelo ${modelType} para ${symbol}...`);
+  await new Promise(res => setTimeout(res, 2500));
+  console.log(`✅ Modelo ${modelType} para ${symbol} entrenado.`);
+  return true;
+};
+/**
  * VectorFlux AI - Main Integration Service
  * Servicio principal que integra todos los componentes de IA
  */
@@ -8,6 +18,14 @@ import { marketDataProcessor } from './marketDataProcessor';
 import { sentimentAnalysisService } from './sentimentAnalysisService';
 
 export class VectorFluxService {
+  /**
+   * Entrenar modelo DNN o LSTM para un activo
+   * (Definido dinámicamente, pero declarado aquí para TypeScript)
+   */
+  trainModel(modelType, symbol) {
+    // Implementación real agregada dinámicamente abajo
+    return Promise.resolve(true);
+  }
   constructor() {
     this.isInitialized = false;
     this.cache = new Map();

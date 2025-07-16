@@ -32,6 +32,13 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env
+
+# API keys and sensitive configuration
+config/secrets.json
+firebase-admin-key.json
+*.pem
+*.key
 
 # typescript
 *.tsbuildinfo

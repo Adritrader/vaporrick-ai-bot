@@ -17,21 +17,27 @@ import {
   Timestamp,
   FieldValue 
 } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { firebaseConfig, isFirebaseAvailable } from '../config/firebaseConfig';
 
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyDlZ0_q2KRTWQTJvlsZIp3yRfrQ-dzNatA",
-  authDomain: "vaporrick-ai-bot.firebaseapp.com",
-  projectId: "vaporrick-ai-bot",
-  storageBucket: "vaporrick-ai-bot.firebasestorage.app",
-  messagingSenderId: "256353463325",
-  appId: "1:256353463325:web:0ea63d06ecfc691b3aaaf4",
-  measurementId: "G-FJR0N3X0VB"
-};
+// Initialize Firebase only if configuration is complete
+let app: any = null;
+let db: any = null;
+let firebaseEnabled = false;
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+try {
+  if (isFirebaseAvailable()) {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    firebaseEnabled = true;
+    console.log('✅ Firebase initialized successfully');
+  } else {
+    console.log('📱 Using local storage fallback instead of Firebase');
+  }
+} catch (error) {
+  console.warn('⚠️ Firebase initialization failed, using local storage:', error);
+  firebaseEnabled = false;
+}
 
 // Collection names
 const COLLECTIONS = {
@@ -41,6 +47,7 @@ const COLLECTIONS = {
   BACKTEST_RESULTS: 'backtestResults',
   MARKET_DATA: 'marketData',
   OPPORTUNITIES: 'opportunities',
+  ALERTS: 'alerts',
   SETTINGS: 'settings'
 } as const;
 
@@ -184,7 +191,7 @@ class FirebaseService {
 
   // Check if Firebase is available (for handling permissions issues)
   private isFirebaseAvailable(): boolean {
-    return this._isAvailable;
+    return firebaseEnabled && this._isAvailable;
   }
 
   // Get the last error message
@@ -651,6 +658,28 @@ service cloud.firestore {
   
   async saveMarketData(marketData: any[]): Promise<void> {
     try {
+      if (!firebaseEnabled || !db) {
+        // Use AsyncStorage fallback when Firebase is not available
+        console.log('📱 Saving market data to local storage (Firebase unavailable)...');
+        for (const data of marketData) {
+          const localData = {
+            symbol: data.symbol,
+            name: data.name || data.symbol,
+            price: data.price,
+            change: data.change,
+            changePercent: data.changePercent,
+            marketCap: data.marketCap || 0,
+            volume24h: data.volume24h || 0,
+            type: data.type,
+            lastUpdated: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          };
+          await AsyncStorage.setItem(`market_data_${data.symbol}`, JSON.stringify(localData));
+        }
+        console.log(`✅ Saved ${marketData.length} market data items to local storage`);
+        return;
+      }
+
       console.log('💾 Saving market data to Firebase...');
       const batch = [];
       
@@ -695,7 +724,15 @@ service cloud.firestore {
 
   async getMarketDataBySymbol(symbol: string): Promise<MarketDataFirestore | null> {
     try {
-      if (!this.isFirebaseAvailable()) {
+      if (!firebaseEnabled || !db) {
+        // Use AsyncStorage fallback when Firebase is not available
+        const cachedData = await AsyncStorage.getItem(`market_data_${symbol}`);
+        if (cachedData) {
+          const parsed = JSON.parse(cachedData);
+          // Check if data is less than 5 minutes old
+          const isRecent = Date.now() - new Date(parsed.lastUpdated).getTime() < 300000;
+          return isRecent ? parsed : null;
+        }
         return null;
       }
 
@@ -931,7 +968,212 @@ service cloud.firestore {
       callback(gems);
     });
   }
+
+  // ==================== ALERTS MANAGEMENT ====================
+
+  async saveAlert(alert: any): Promise<string | null> {
+    if (!firebaseEnabled) {
+      console.log('📱 Saving alert to local storage (Firebase unavailable)');
+      try {
+        const storedAlerts = await AsyncStorage.getItem('stored_alerts');
+        const alerts = storedAlerts ? JSON.parse(storedAlerts) : [];
+        alerts.push({
+          ...alert,
+          id: alert.id || Date.now().toString(),
+          createdAt: alert.createdAt || new Date(),
+          savedAt: new Date()
+        });
+        await AsyncStorage.setItem('stored_alerts', JSON.stringify(alerts));
+        return alert.id;
+      } catch (error) {
+        console.error('❌ Error saving alert locally:', error);
+        return null;
+      }
+    }
+
+    try {
+      console.log(`💾 Saving alert ${alert.symbol} to Firebase...`);
+      console.log(`🔍 Firebase enabled: ${firebaseEnabled}, Collection: ${COLLECTIONS.ALERTS}`);
+      
+      const alertData = {
+        ...alert,
+        currentPrice: parseFloat(alert.currentPrice?.toFixed(2) || '0'),
+        targetPrice: alert.targetPrice ? parseFloat(alert.targetPrice.toFixed(2)) : null,
+        stopLoss: alert.stopLoss ? parseFloat(alert.stopLoss.toFixed(2)) : null,
+        confidence: typeof alert.confidence === 'number' ? alert.confidence : parseInt(alert.confidence),
+        createdAt: alert.createdAt instanceof Date ? Timestamp.fromDate(alert.createdAt) : serverTimestamp(),
+        savedAt: serverTimestamp(),
+        isActive: alert.isActive ?? true
+      };
+
+      console.log(`📊 Alert data prepared for Firebase:`, {
+        symbol: alertData.symbol,
+        strategy: alertData.strategy,
+        confidence: alertData.confidence,
+        currentPrice: alertData.currentPrice,
+        targetPrice: alertData.targetPrice
+      });
+
+      const docRef = await addDoc(collection(db, COLLECTIONS.ALERTS), alertData);
+      console.log(`✅ Alert saved to Firebase with ID: ${docRef.id}`);
+      return docRef.id;
+    } catch (error) {
+      console.error('❌ Error saving alert to Firebase:', error);
+      console.error('📋 Error details:', error.message);
+      
+      // Don't recursively call saveAlert, just return null
+      console.log('📱 Falling back to local storage due to Firebase error');
+      try {
+        const storedAlerts = await AsyncStorage.getItem('stored_alerts');
+        const alerts = storedAlerts ? JSON.parse(storedAlerts) : [];
+        alerts.push({
+          ...alert,
+          id: alert.id || Date.now().toString(),
+          createdAt: alert.createdAt || new Date(),
+          savedAt: new Date()
+        });
+        await AsyncStorage.setItem('stored_alerts', JSON.stringify(alerts));
+        console.log(`📱 Alert ${alert.symbol} saved to local storage as fallback`);
+        return alert.id;
+      } catch (localError) {
+        console.error('❌ Error saving to local storage fallback:', localError);
+        return null;
+      }
+    }
+  }
+
+  async getAlerts(limit_count = 100): Promise<any[]> {
+    if (!firebaseEnabled) {
+      console.log('📱 Loading alerts from local storage');
+      try {
+        const storedAlerts = await AsyncStorage.getItem('stored_alerts');
+        return storedAlerts ? JSON.parse(storedAlerts) : [];
+      } catch (error) {
+        console.error('❌ Error loading alerts locally:', error);
+        return [];
+      }
+    }
+
+    try {
+      console.log('📥 Loading alerts from Firebase...');
+      const q = query(
+        collection(db, COLLECTIONS.ALERTS),
+        orderBy('createdAt', 'desc'),
+        limit(limit_count)
+      );
+
+      const querySnapshot = await getDocs(q);
+      const alerts: any[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        alerts.push({
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+          savedAt: data.savedAt?.toDate ? data.savedAt.toDate() : new Date(data.savedAt)
+        });
+      });
+
+      console.log(`✅ Loaded ${alerts.length} alerts from Firebase`);
+      return alerts;
+    } catch (error) {
+      console.error('❌ Error loading alerts from Firebase:', error);
+      return [];
+    }
+  }
+
+  async updateAlert(alertId: string, updates: any): Promise<boolean> {
+    if (!firebaseEnabled) {
+      console.log('📱 Updating alert in local storage');
+      try {
+        const storedAlerts = await AsyncStorage.getItem('stored_alerts');
+        const alerts = storedAlerts ? JSON.parse(storedAlerts) : [];
+        const alertIndex = alerts.findIndex((a: any) => a.id === alertId);
+        
+        if (alertIndex !== -1) {
+          alerts[alertIndex] = { ...alerts[alertIndex], ...updates, updatedAt: new Date() };
+          await AsyncStorage.setItem('stored_alerts', JSON.stringify(alerts));
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('❌ Error updating alert locally:', error);
+        return false;
+      }
+    }
+
+    try {
+      console.log(`🔄 Updating alert ${alertId} in Firebase...`);
+      const alertRef = doc(db, COLLECTIONS.ALERTS, alertId);
+      await updateDoc(alertRef, {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+      console.log(`✅ Alert ${alertId} updated in Firebase`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating alert in Firebase:', error);
+      return false;
+    }
+  }
+
+  async deleteAlert(alertId: string): Promise<boolean> {
+    if (!firebaseEnabled) {
+      console.log('📱 Deleting alert from local storage');
+      try {
+        const storedAlerts = await AsyncStorage.getItem('stored_alerts');
+        const alerts = storedAlerts ? JSON.parse(storedAlerts) : [];
+        const filteredAlerts = alerts.filter((a: any) => a.id !== alertId);
+        await AsyncStorage.setItem('stored_alerts', JSON.stringify(filteredAlerts));
+        return true;
+      } catch (error) {
+        console.error('❌ Error deleting alert locally:', error);
+        return false;
+      }
+    }
+
+    try {
+      console.log(`🗑️ Deleting alert ${alertId} from Firebase...`);
+      const alertRef = doc(db, COLLECTIONS.ALERTS, alertId);
+      await deleteDoc(alertRef);
+      console.log(`✅ Alert ${alertId} deleted from Firebase`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error deleting alert from Firebase:', error);
+      return false;
+    }
+  }
+
+  subscribeToAlerts(callback: (alerts: any[]) => void, limit_count = 100) {
+    if (!firebaseEnabled) {
+      console.log('📱 Firebase unavailable, using local storage for alerts');
+      // For local storage, we'll call the callback once with stored data
+      this.getAlerts(limit_count).then(callback).catch(() => callback([]));
+      return () => {}; // Return empty unsubscribe function
+    }
+
+    const q = query(
+      collection(db, COLLECTIONS.ALERTS),
+      orderBy('createdAt', 'desc'),
+      limit(limit_count)
+    );
+
+    return onSnapshot(q, (querySnapshot) => {
+      const alerts: any[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        alerts.push({
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+          savedAt: data.savedAt?.toDate ? data.savedAt.toDate() : new Date(data.savedAt)
+        });
+      });
+      callback(alerts);
+    });
+  }
 }
 
 export const firebaseService = new FirebaseService();
-export { COLLECTIONS };
+export { COLLECTIONS, db };

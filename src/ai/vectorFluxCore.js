@@ -671,10 +671,18 @@ export class VectorFluxAI {
    */
   async ensemblePrediction(features, sequences, sentimentText = '', chartImage = null) {
     try {
-      const results = {};
+      // Siempre inicializar todas las claves de modelo a null
+      const results = {
+        dnn: null,
+        lstm: null,
+        cnn: null,
+        reinforcement: null,
+        sentiment: null,
+        transformer: null
+      };
 
       // Predicción DNN
-      if (features && features.length === 20 && this.models.dnn) {
+      if (features && features.length >= 10 && this.models.dnn) {
         try {
           results.dnn = await this.predictWithDNN(features);
         } catch (error) {
@@ -683,7 +691,7 @@ export class VectorFluxAI {
       }
 
       // Predicción LSTM
-      if (sequences && sequences.length === 60 && this.models.lstm) {
+      if (sequences && Array.isArray(sequences) && sequences.length > 0 && this.models.lstm) {
         try {
           results.lstm = await this.predictWithLSTM(sequences);
         } catch (error) {
@@ -692,7 +700,7 @@ export class VectorFluxAI {
       }
 
       // Predicción Transformer
-      if (features && this.models.transformer) {
+      if (features && features.length >= 20 && this.models.transformer) {
         try {
           results.transformer = await this.predictWithTransformer(features.slice(0, 100));
         } catch (error) {
@@ -701,7 +709,7 @@ export class VectorFluxAI {
       }
 
       // Reinforcement Learning
-      if (features && this.models.reinforcement) {
+      if (features && features.length >= 8 && this.models.reinforcement) {
         try {
           results.reinforcement = await this.predictWithRL(features.slice(0, 10));
         } catch (error) {
@@ -729,13 +737,14 @@ export class VectorFluxAI {
 
       // Combinar resultados
       const ensemble = this.combineResults(results);
-      
+
+      // Para compatibilidad con generateTradingSignals, aplanar resultados individuales al nivel superior
       return {
-        individual: results,
+        ...results,
         ensemble,
         timestamp: new Date().toISOString(),
         confidence: ensemble.confidence || 0.5,
-        modelsUsed: Object.keys(results).length
+        modelsUsed: Object.values(results).filter(x => x !== null).length
       };
     } catch (error) {
       console.error('❌ Error in ensemble prediction:', error);

@@ -20,167 +20,23 @@ interface Section {
   content: React.ReactNode;
 }
 
-export default function DocumentationScreen() {
-  const [activeSection, setActiveSection] = useState('overview');
-
-  const sections: Section[] = [
-    {
-      id: 'overview',
-      title: 'Visión General',
-      icon: '🏠',
-      content: <OverviewSection />,
-    },
-    {
-      id: 'architecture',
-      title: 'Arquitectura',
-      icon: '🏗️',
-      content: <ArchitectureSection />,
-    },
-    {
-      id: 'ai-system',
-      title: 'Sistema de IA',
-      icon: '🧠',
-      content: <AISystemSection />,
-    },
-    {
-      id: 'trading',
-      title: 'Trading',
-      icon: '📈',
-      content: <TradingSection />,
-    },
-    {
-      id: 'screens',
-      title: 'Pantallas',
-      icon: '📱',
-      content: <ScreensSection />,
-    },
-    {
-      id: 'api-services',
-      title: 'APIs y Servicios',
-      icon: '🔌',
-      content: <APIServicesSection />,
-    },
-    {
-      id: 'user-guide',
-      title: 'Guía de Usuario',
-      icon: '📚',
-      content: <UserGuideSection />,
-    },
-    {
-      id: 'troubleshooting',
-      title: 'Solución de Problemas',
-      icon: '🔧',
-      content: <TroubleshootingSection />,
-    },
-    {
-      id: 'roadmap',
-      title: 'Roadmap',
-      icon: '🗺️',
-      content: <RoadmapSection />,
-    },
-  ];
-
-  const activeContent = sections.find(section => section.id === activeSection)?.content;
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={theme.gradients.background as any}
-        style={styles.gradient}
-      >
-        <View style={styles.header}>
-          <LinearGradient
-            colors={[theme.surface, theme.surfaceVariant]}
-            style={styles.headerGradient}
-          >
-            <Text style={styles.headerTitle}>📚 Documentación Completa</Text>
-            <Text style={styles.headerSubtitle}>VaporRick AI Trading Bot v1.0</Text>
-          </LinearGradient>
-        </View>
-
-        <View style={styles.content}>
-          {/* Navigation Sidebar */}
-          <View style={styles.sidebar}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {sections.map((section) => (
-                <TouchableOpacity
-                  key={section.id}
-                  style={[
-                    styles.navItem,
-                    activeSection === section.id && styles.activeNavItem,
-                  ]}
-                  onPress={() => setActiveSection(section.id)}
-                >
-                  <Text style={styles.navIcon}>{section.icon}</Text>
-                  <Text style={[
-                    styles.navTitle,
-                    activeSection === section.id && styles.activeNavTitle,
-                  ]}>
-                    {section.title}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-
-          {/* Main Content */}
-          <View style={styles.mainContent}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {activeContent}
-            </ScrollView>
-          </View>
-        </View>
-      </LinearGradient>
-    </SafeAreaView>
-  );
-}
-
-// Section Components
+// --- SECTIONS DEFINITION ---
 function OverviewSection() {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>🏠 Visión General del Sistema</Text>
-      
+      <Text style={styles.sectionTitle}>🏠 Visión General</Text>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>🤖 ¿Qué es VaporRick AI Bot?</Text>
+        <Text style={styles.cardTitle}>¿Qué es VaporRick AI?</Text>
         <Text style={styles.text}>
-          VaporRick AI Bot es una aplicación React Native con Expo que combina inteligencia artificial, 
-          análisis técnico y trading automatizado para ofrecer predicciones de mercado y estrategias 
-          de inversión inteligentes.
+          VaporRick AI es una app de trading inteligente para acciones y criptomonedas, con análisis avanzado, generación de estrategias por IA y backtesting profesional. Todo el procesamiento es local y privado, sin costes externos.
         </Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>🎯 Características Principales</Text>
-        <Text style={styles.bulletPoint}>• 🧠 Inteligencia Artificial con TensorFlow.js</Text>
-        <Text style={styles.bulletPoint}>• 📈 Análisis técnico en tiempo real</Text>
-        <Text style={styles.bulletPoint}>• 💎 Detector de gemas cripto</Text>
-        <Text style={styles.bulletPoint}>• ⚡ Trading automatizado</Text>
-        <Text style={styles.bulletPoint}>• 📊 Dashboard de performance</Text>
-        <Text style={styles.bulletPoint}>• 🔔 Sistema de alertas</Text>
-        <Text style={styles.bulletPoint}>• 📱 Interfaz móvil optimizada</Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>🔬 Tecnologías Implementadas</Text>
-        <Text style={styles.bulletPoint}>• React Native + Expo</Text>
-        <Text style={styles.bulletPoint}>• TensorFlow.js para modelos de IA</Text>
-        <Text style={styles.bulletPoint}>• Context API para gestión de estado</Text>
-        <Text style={styles.bulletPoint}>• Victory Native para gráficos</Text>
-        <Text style={styles.bulletPoint}>• Firebase para datos en tiempo real</Text>
-        <Text style={styles.bulletPoint}>• APIs: Alpha Vantage, CoinGecko, Yahoo Finance</Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>💰 Modelo de Negocio</Text>
-        <Text style={styles.text}>
-          La aplicación es completamente gratuita, utilizando TensorFlow.js localmente 
-          para evitar costos de servidores de IA. Se monetiza a través de:
-        </Text>
-        <Text style={styles.bulletPoint}>• Versión premium con funciones avanzadas</Text>
-        <Text style={styles.bulletPoint}>• Integración con exchanges (comisiones)</Text>
-        <Text style={styles.bulletPoint}>• API para desarrolladores</Text>
-        <Text style={styles.bulletPoint}>• Consultoría y servicios personalizados</Text>
+        <Text style={styles.bulletPoint}>• Trading automatizado y manual</Text>
+        <Text style={styles.bulletPoint}>• Análisis técnico y fundamental</Text>
+        <Text style={styles.bulletPoint}>• IA para generación de estrategias</Text>
+        <Text style={styles.bulletPoint}>• Backtesting con métricas reales</Text>
+        <Text style={styles.bulletPoint}>• Alertas inteligentes y personalizadas</Text>
+        <Text style={styles.bulletPoint}>• Persistencia local con Realm</Text>
+        <Text style={styles.bulletPoint}>• Visualización avanzada con Victory Native</Text>
       </View>
     </View>
   );
@@ -189,59 +45,41 @@ function OverviewSection() {
 function ArchitectureSection() {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>🏗️ Arquitectura del Sistema</Text>
-      
+      <Text style={styles.sectionTitle}>🏗️ Arquitectura</Text>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>📁 Estructura de Directorios</Text>
         <Text style={styles.codeBlock}>
-{`/src/
-├── screens/          # Pantallas principales
-├── components/       # Componentes reutilizables
-├── services/         # Servicios de datos y APIs
-├── ai/              # Lógica de inteligencia artificial
-├── context/         # Context API y gestión de estado
-├── utils/           # Utilidades y helpers
-├── theme/           # Temas y estilos
-├── hooks/           # Custom hooks
-├── data/            # Datos estáticos
-├── workers/         # Web Workers para cálculos pesados
-└── backtesting/     # Motor de backtesting`}
+{`/src
+|-- screens/          # Pantallas principales
+|-- components/       # Componentes reutilizables
+|-- services/         # Servicios de datos y APIs
+|-- ai/               # Lógica de inteligencia artificial
+|-- context/          # Context API y gestión de estado
+|-- utils/            # Utilidades y helpers
+|-- theme/            # Temas y estilos
+|-- hooks/            # Custom hooks
+|-- data/             # Datos estáticos
+|-- workers/          # Web Workers para cálculos pesados
+|__ backtesting/      # Motor de backtesting`}
         </Text>
       </View>
-
       <View style={styles.card}>
         <Text style={styles.cardTitle}>🔄 Flujo de Datos</Text>
-        <Text style={styles.text}>
-          1. 📡 APIs obtienen datos de mercado en tiempo real
-        </Text>
-        <Text style={styles.text}>
-          2. 🧠 Sistema de IA procesa y analiza los datos
-        </Text>
-        <Text style={styles.text}>
-          3. 📊 Indicadores técnicos se calculan
-        </Text>
-        <Text style={styles.text}>
-          4. ⚡ Señales de trading se generan
-        </Text>
-        <Text style={styles.text}>
-          5. 📱 UI se actualiza en tiempo real
-        </Text>
-        <Text style={styles.text}>
-          6. 🔔 Alertas se envían cuando es necesario
-        </Text>
+        <Text style={styles.text}>1. 📡 APIs obtienen datos de mercado en tiempo real</Text>
+        <Text style={styles.text}>2. 🧠 Sistema de IA procesa y analiza los datos</Text>
+        <Text style={styles.text}>3. 📊 Indicadores técnicos se calculan</Text>
+        <Text style={styles.text}>4. ⚡ Señales de trading se generan</Text>
+        <Text style={styles.text}>5. 📱 UI se actualiza en tiempo real</Text>
+        <Text style={styles.text}>6. 🔔 Alertas se envían cuando es necesario</Text>
       </View>
-
       <View style={styles.card}>
         <Text style={styles.cardTitle}>🎛️ Gestión de Estado</Text>
-        <Text style={styles.text}>
-          Utilizamos Context API con useReducer para un estado global eficiente:
-        </Text>
+        <Text style={styles.text}>Utilizamos Context API con useReducer para un estado global eficiente:</Text>
         <Text style={styles.bulletPoint}>• TradingContext: Estado de trading y datos de mercado</Text>
         <Text style={styles.bulletPoint}>• Reducers: Acciones puras para modificar estado</Text>
         <Text style={styles.bulletPoint}>• Providers: Envuelven la app con contexto global</Text>
         <Text style={styles.bulletPoint}>• Custom hooks: Abstraen lógica de estado</Text>
       </View>
-
       <View style={styles.card}>
         <Text style={styles.cardTitle}>🔌 Integración de Servicios</Text>
         <Text style={styles.bulletPoint}>• marketDataService: Gestión unificada de datos</Text>
@@ -642,7 +480,7 @@ function TroubleshootingSection() {
         
         <Text style={styles.subTitle}>Logs de Error</Text>
         <Text style={styles.text}>
-          Accede a los logs desde Settings {'>'}  Diagnosis para ver 
+          Accede a los logs desde Settings {'>'} Diagnosis para ver 
           errores detallados y reportarlos al soporte.
         </Text>
       </View>
@@ -652,7 +490,7 @@ function TroubleshootingSection() {
         <Text style={styles.text}>
           Si experimentas problemas persistentes:
         </Text>
-        <Text style={styles.bulletPoint}>• Ve a Settings {'>'}  Advanced</Text>
+        <Text style={styles.bulletPoint}>• Ve a Settings {'>'} Advanced</Text>
         <Text style={styles.bulletPoint}>• Selecciona "Reset App Data"</Text>
         <Text style={styles.bulletPoint}>• Confirma la acción</Text>
         <Text style={styles.bulletPoint}>• Reconfigura tus preferencias</Text>
@@ -758,6 +596,122 @@ function RoadmapSection() {
   );
 }
 
+// --- MAIN DOCUMENTATION SCREEN ---
+export default function DocumentationScreen() {
+  const [activeSection, setActiveSection] = useState('overview');
+
+  const sections: Section[] = [
+    {
+      id: 'overview',
+      title: 'Visión General',
+      icon: '🏠',
+      content: <OverviewSection />,
+    },
+    {
+      id: 'architecture',
+      title: 'Arquitectura',
+      icon: '🏗️',
+      content: <ArchitectureSection />,
+    },
+    {
+      id: 'ai-system',
+      title: 'Inteligencia Artificial',
+      icon: '🤖',
+      content: <AISystemSection />,
+    },
+    {
+      id: 'trading',
+      title: 'Trading & Estrategias',
+      icon: '📈',
+      content: <TradingSection />,
+    },
+    {
+      id: 'screens',
+      title: 'Pantallas & UI',
+      icon: '🖥️',
+      content: <ScreensSection />,
+    },
+    {
+      id: 'api-services',
+      title: 'APIs y Servicios',
+      icon: '🔌',
+      content: <APIServicesSection />,
+    },
+    {
+      id: 'user-guide',
+      title: 'Guía de Usuario',
+      icon: '📖',
+      content: <UserGuideSection />,
+    },
+    {
+      id: 'troubleshooting',
+      title: 'Soporte & Problemas',
+      icon: '🛠️',
+      content: <TroubleshootingSection />,
+    },
+    {
+      id: 'roadmap',
+      title: 'Roadmap & Futuro',
+      icon: '🚀',
+      content: <RoadmapSection />,
+    },
+  ];
+
+  const activeContent = sections.find(section => section.id === activeSection)?.content;
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <LinearGradient
+        colors={theme.gradients.background as any}
+        style={styles.gradient}
+      >
+        <View style={styles.header}>
+          <LinearGradient
+            colors={[theme.surface, theme.surfaceVariant]}
+            style={styles.headerGradient}
+          >
+            <Text style={styles.headerTitle}>📚 Documentación VaporRick AI</Text>
+            <Text style={styles.headerSubtitle}>Trading Bot Inteligente · Última actualización: Julio 2025</Text>
+          </LinearGradient>
+        </View>
+
+        <View style={styles.content}>
+          {/* Navigation Sidebar */}
+          <View style={styles.sidebar}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {sections.map((section) => (
+                <TouchableOpacity
+                  key={section.id}
+                  style={[
+                    styles.navItem,
+                    activeSection === section.id && styles.activeNavItem,
+                  ]}
+                  onPress={() => setActiveSection(section.id)}
+                >
+                  <Text style={styles.navIcon}>{section.icon}</Text>
+                  <Text style={[
+                    styles.navTitle,
+                    activeSection === section.id && styles.activeNavTitle,
+                  ]}>
+                    {section.title}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Main Content */}
+          <View style={styles.mainContent}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {activeContent}
+            </ScrollView>
+          </View>
+        </View>
+      </LinearGradient>
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -767,6 +721,7 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: theme.spacing.md,
+    paddingTop: theme.spacing.xxl * 1.5,
   },
   headerGradient: {
     padding: theme.spacing.lg,
@@ -792,92 +747,126 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
   },
   sidebar: {
-    width: width * 0.25,
+    width: width < 700 ? 120 : width * 0.22,
     marginRight: theme.spacing.md,
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: theme.borderRadius.lg,
+    paddingVertical: theme.spacing.md,
+    minHeight: 400,
+    ...theme.shadows.small,
   },
   navItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.md,
     marginBottom: theme.spacing.xs,
   },
   activeNavItem: {
-    backgroundColor: theme.primary + '20',
+    backgroundColor: theme.primary + '30',
+    shadowColor: theme.primary,
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
   },
   navIcon: {
-    fontSize: 16,
+    fontSize: 18,
     marginRight: theme.spacing.sm,
+    opacity: 0.9,
   },
   navTitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: theme.textSecondary,
     flex: 1,
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
   activeNavTitle: {
     color: theme.primary,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   mainContent: {
     flex: 1,
-  },
-  section: {
-    paddingBottom: theme.spacing.xl,
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: theme.textPrimary,
-    marginBottom: theme.spacing.lg,
-  },
-  card: {
     backgroundColor: theme.surface,
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
+    minHeight: 400,
     ...theme.shadows.small,
   },
+  section: {
+    paddingBottom: theme.spacing.xl,
+    maxWidth: 900,
+    alignSelf: 'center',
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: theme.primary,
+    marginBottom: theme.spacing.lg,
+    letterSpacing: 0.5,
+    textShadowColor: theme.primary + '30',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  card: {
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.xl,
+    marginBottom: theme.spacing.lg,
+    ...theme.shadows.medium,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: 'bold',
     color: theme.textPrimary,
     marginBottom: theme.spacing.md,
+    letterSpacing: 0.2,
   },
   subTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: theme.textPrimary,
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.sm,
+    letterSpacing: 0.1,
   },
   text: {
-    fontSize: 14,
+    fontSize: 15,
     color: theme.textSecondary,
-    lineHeight: 20,
+    lineHeight: 22,
     marginBottom: theme.spacing.sm,
   },
   bulletPoint: {
-    fontSize: 14,
+    fontSize: 15,
     color: theme.textSecondary,
-    lineHeight: 20,
+    lineHeight: 22,
     marginBottom: theme.spacing.xs,
+    paddingLeft: 8,
   },
   codeBlock: {
     fontFamily: 'monospace',
-    fontSize: 12,
+    fontSize: 13,
     color: theme.success,
     backgroundColor: theme.background,
     padding: theme.spacing.md,
     borderRadius: theme.borderRadius.md,
     marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.success + '30',
   },
   warning: {
-    fontSize: 14,
+    fontSize: 15,
     color: theme.warning,
     fontStyle: 'italic',
     marginTop: theme.spacing.sm,
     padding: theme.spacing.sm,
     backgroundColor: theme.warning + '10',
     borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.warning + '30',
   },
 });

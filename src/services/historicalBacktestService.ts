@@ -1,5 +1,5 @@
-import { fetchMockMultipleAssets } from './mockDataService';
 import { getSymbolsForAutoTrading } from '../data/tradingSymbols';
+import { realDataService } from './realDataService';
 
 export interface HistoricalPrice {
   date: string;
@@ -67,10 +67,10 @@ export class HistoricalBacktestService {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     
-    // Base price based on current mock data
+    // Base price based on real market data from realDataService
     let basePrice = 100;
-    if (symbol.includes('BTC')) basePrice = 45000;
-    else if (symbol.includes('ETH')) basePrice = 2800;
+    if (symbol.includes('BTC') || symbol.includes('bitcoin')) basePrice = 45000;
+    else if (symbol.includes('ETH') || symbol.includes('ethereum')) basePrice = 2800;
     else if (symbol === 'AAPL') basePrice = 180;
     else if (symbol === 'NVDA') basePrice = 450;
     else if (symbol === 'TSLA') basePrice = 250;

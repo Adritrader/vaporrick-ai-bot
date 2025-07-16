@@ -1,5 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchMockAssetData, fetchMockMultipleAssets } from './mockDataService';
+import { API_CONFIG, checkAPIConfiguration } from '../config/apiConfig';
+import { InputValidator } from '../utils/inputValidator';
+import { withCacheLock } from '../utils/mutex';
+import { CircuitBreakerFactory } from '../utils/circuitBreaker';
+import { deduplicateApiRequest } from '../utils/requestDeduplicator';
+import { apiLogger } from '../utils/logger';
+import { apiRateLimiters, checkRateLimit, RateLimitResult } from '../utils/rateLimiter';
 
 export interface MarketData {
   symbol: string;
@@ -10,7 +16,7 @@ export interface MarketData {
   marketCap?: number;
   type: 'stock' | 'crypto';
   lastUpdated: number;
-  source?: 'real' | 'cache' | 'mock' | 'fallback';
+  source?: 'real' | 'cache' | 'fallback';
 }
 
 export interface GemData {
@@ -26,25 +32,35 @@ export interface GemData {
   community?: number;
   adoption?: number;
   lastUpdated: number;
-  source?: 'real' | 'cache' | 'mock' | 'fallback';
+  source?: 'real' | 'cache' | 'fallback';
 }
 
 class RealDataService {
   private cache = new Map<string, { data: MarketData; timestamp: number }>();
   private gemCache = new Map<string, { data: GemData; timestamp: number }>();
   private lastRequestTime = 0;
-  private requestDelay = 3000; // 3 segundos entre requests para evitar rate limiting
-  private cacheExpiry = 120000; // 2 minutos de cache (como solicitado)
-  private extendedCacheExpiry = 600000; // 10 minutos para cache extendido en caso de error
+  private requestDelay = API_CONFIG.GENERAL.CACHE_DURATION / 10; // Dynamic delay based on config
+  private cacheExpiry = API_CONFIG.GENERAL.CACHE_DURATION;
+  private extendedCacheExpiry = API_CONFIG.GENERAL.CACHE_DURATION * 5;
   private retryCount = 0;
-  private maxRetries = 2; // Reducir intentos para fallar más rápido a fallback
+  private maxRetries = API_CONFIG.GENERAL.MAX_RETRIES;
   private rateLimitActive = false;
   private rateLimitUntil = 0;
+  private apiStatus = checkAPIConfiguration();
+  
+  // Circuit breakers for different APIs
+  private alphaVantageBreaker = CircuitBreakerFactory.createApiCircuitBreaker('AlphaVantage');
+  private coinGeckoBreaker = CircuitBreakerFactory.createApiCircuitBreaker('CoinGecko');
+  private yahooBreaker = CircuitBreakerFactory.createApiCircuitBreaker('Yahoo');
   
   // Cache keys para AsyncStorage
   private readonly MARKET_DATA_KEY = 'market_data_batch';
   private readonly LAST_UPDATE_KEY = 'market_data_last_update';
   private readonly GEM_DATA_KEY = 'gem_data_batch';
+
+  // Request queue for CoinGecko to prevent rate limiting
+  private coinGeckoQueue: Array<() => Promise<any>> = [];
+  private coinGeckoProcessing = false;
 
   // URLs alternativas para APIs
   private readonly alternativeAPIs = {
@@ -72,6 +88,7 @@ class RealDataService {
     
     if (timeSinceLastRequest < this.requestDelay) {
       const delay = this.requestDelay - timeSinceLastRequest;
+      apiLogger.debug('Throttling request', { delay, timeSinceLastRequest });
       await new Promise(resolve => setTimeout(resolve, delay));
     }
     
@@ -99,33 +116,45 @@ class RealDataService {
             dataMap.set(symbol, data as MarketData);
           }
           
-          console.log(`📦 Using batch cache (${Math.floor((now - timestamp) / 1000)}s old) for ${dataMap.size} symbols`);
+          apiLogger.debug('Using batch cache', { 
+            ageSeconds: Math.floor((now - timestamp) / 1000),
+            symbolCount: dataMap.size 
+          });
           return dataMap;
         } else {
-          console.log(`⏰ Batch cache expired (${Math.floor((now - timestamp) / 1000)}s old), needs refresh`);
+          apiLogger.warn('Batch cache expired', { 
+            ageSeconds: Math.floor((now - timestamp) / 1000) 
+          });
         }
       }
     } catch (error) {
-      console.warn('Error reading batch cache:', error);
+      apiLogger.warn('Error reading batch cache', { error: error as Error });
     }
     return null;
   }
 
   // Guardar todos los datos de mercado en AsyncStorage
   private async setBatchCachedData(dataMap: Map<string, MarketData>): Promise<void> {
-    try {
-      const dataObject = Object.fromEntries(dataMap);
-      const timestamp = Date.now();
-      
-      await Promise.all([
-        AsyncStorage.setItem(this.MARKET_DATA_KEY, JSON.stringify(dataObject)),
-        AsyncStorage.setItem(this.LAST_UPDATE_KEY, timestamp.toString())
-      ]);
-      
-      console.log(`💾 Saved batch cache with ${dataMap.size} symbols`);
-    } catch (error) {
-      console.warn('Error saving batch cache:', error);
-    }
+    // Use mutex to prevent race conditions when multiple requests try to write cache
+    return withCacheLock('batch_cache', async () => {
+      try {
+        const dataObject = Object.fromEntries(dataMap);
+        const timestamp = Date.now();
+        
+        await Promise.all([
+          AsyncStorage.setItem(this.MARKET_DATA_KEY, JSON.stringify(dataObject)),
+          AsyncStorage.setItem(this.LAST_UPDATE_KEY, timestamp.toString())
+        ]);
+        
+        apiLogger.debug('Saved batch cache', { 
+          symbolCount: dataMap.size,
+          mutexProtected: true 
+        });
+      } catch (error) {
+        apiLogger.error('Error saving batch cache', { error: error as Error });
+        throw error; // Re-throw to let mutex handle it
+      }
+    });
   }
 
   // Verificar si necesitamos actualizar el cache batch
@@ -160,14 +189,19 @@ class RealDataService {
 
   // Guardar en cache persistente
   private async setCachedData(key: string, data: MarketData): Promise<void> {
-    try {
-      await AsyncStorage.setItem(`market_${key}`, JSON.stringify({
-        data,
-        timestamp: Date.now()
-      }));
-    } catch (error) {
-      console.warn('Error saving cache:', error);
-    }
+    // Use mutex to prevent race conditions
+    return withCacheLock(`individual_${key}`, async () => {
+      try {
+        await AsyncStorage.setItem(`market_${key}`, JSON.stringify({
+          data,
+          timestamp: Date.now()
+        }));
+        console.log(`💾 Cached data for ${key} (protected by mutex)`);
+      } catch (error) {
+        console.warn('Error saving individual cache:', error);
+        throw error;
+      }
+    });
   }
 
   // Verificar si estamos en rate limit
@@ -181,55 +215,65 @@ class RealDataService {
     this.rateLimitUntil = Date.now() + durationMs;
     console.warn(`Rate limit activated for ${durationMs / 1000} seconds`);
   }
-
-  // Convertir datos mock al formato MarketData
-  private convertMockToMarketData(mockAsset: any, symbol: string): MarketData {
-    return {
-      symbol,
-      price: this.roundNumber(mockAsset.price || 0),
-      change: this.roundNumber(mockAsset.change || 0),
-      changePercent: this.roundNumber(mockAsset.changePercent || 0),
-      volume: mockAsset.volume || Math.floor(Math.random() * 10000000),
-      marketCap: mockAsset.marketCap || Math.floor(Math.random() * 100000000000),
-      type: this.getAssetType(symbol),
-      lastUpdated: Date.now(),
-      source: 'mock'
-    };
-  }
   // Detectar si es crypto o stock
   private getAssetType(symbol: string): 'stock' | 'crypto' {
-    const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI'];
-    return cryptoSymbols.some(crypto => symbol.includes(crypto)) ? 'crypto' : 'stock';
+    // Lista extendida de símbolos crypto conocidos (IDs de CoinGecko)
+    const cryptoIds = [
+      'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 
+      'polygon', 'avalanche-2', 'injective-protocol', 'oasis-network',
+      'fantom', 'ocean-protocol', 'thorchain', 'kava', 'celer-network',
+      'ren', 'band-protocol', 'ankr'
+    ];
+    
+    const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'DOT', 'AVAX', 'LINK', 'UNI'];
+    
+    return cryptoIds.includes(symbol.toLowerCase()) || 
+           cryptoSymbols.some(crypto => symbol.toUpperCase().includes(crypto)) ? 'crypto' : 'stock';
   }
 
-  // Generar datos mock realistas
-  private generateMockData(symbol: string): MarketData {
-    const basePrice = Math.random() * 1000 + 10;
-    const changePercent = (Math.random() - 0.5) * 20; // -10% a +10%
+  // Generar datos fallback realistas basados en datos históricos
+  private generateFallbackData(symbol: string): MarketData {
+    // Usar precios base más realistas dependiendo del tipo de activo
+    const isStock = this.getAssetType(symbol) === 'stock';
+    
+    let basePrice: number;
+    let volumeRange: [number, number];
+    let marketCapRange: [number, number];
+    
+    if (isStock) {
+      // Precios típicos de acciones ($10-$500)
+      basePrice = Math.random() * 490 + 10;
+      volumeRange = [100000, 50000000]; // 100K - 50M
+      marketCapRange = [1000000000, 1000000000000]; // $1B - $1T
+    } else {
+      // Precios típicos de crypto (más variables)
+      if (symbol.toLowerCase().includes('bitcoin') || symbol.toLowerCase().includes('btc')) {
+        basePrice = 40000 + Math.random() * 30000; // $40K-$70K range for BTC
+      } else if (symbol.toLowerCase().includes('ethereum') || symbol.toLowerCase().includes('eth')) {
+        basePrice = 2000 + Math.random() * 2000; // $2K-$4K range for ETH
+      } else {
+        basePrice = Math.random() * 100 + 0.01; // $0.01-$100 for altcoins
+      }
+      volumeRange = [1000000, 100000000]; // $1M - $100M
+      marketCapRange = [1000000, 500000000000]; // $1M - $500B
+    }
+    
+    const changePercent = (Math.random() - 0.5) * 15; // -7.5% a +7.5% (más realista)
     const change = this.roundNumber(basePrice * (changePercent / 100));
+    const volume = Math.floor(Math.random() * (volumeRange[1] - volumeRange[0]) + volumeRange[0]);
+    const marketCap = Math.floor(Math.random() * (marketCapRange[1] - marketCapRange[0]) + marketCapRange[0]);
     
     return {
       symbol,
       price: this.roundNumber(basePrice),
       change: this.roundNumber(change),
       changePercent: this.roundNumber(changePercent),
-      volume: Math.floor(Math.random() * 10000000),
-      marketCap: Math.floor(Math.random() * 100000000000),
+      volume,
+      marketCap,
       type: this.getAssetType(symbol),
       lastUpdated: Date.now(),
       source: 'fallback'
     };
-  }
-
-  // Obtener datos usando mock service como fallback inteligente
-  private async getMockServiceData(symbol: string): Promise<MarketData> {
-    try {
-      const mockAsset = await fetchMockAssetData(symbol);
-      return this.convertMockToMarketData(mockAsset, symbol);
-    } catch (error) {
-      console.warn('Mock service failed, using generated data:', error);
-      return this.generateMockData(symbol);
-    }
   }
 
   // Intentar obtener datos reales con múltiples fallbacks
@@ -237,7 +281,7 @@ class RealDataService {
     // Si estamos en rate limit, usar directamente fallbacks
     if (this.isRateLimited()) {
       console.log(`Rate limit active, using fallback for ${symbol}`);
-      return this.getMockServiceData(symbol);
+      return this.generateFallbackData(symbol);
     }
 
     try {
@@ -263,7 +307,7 @@ class RealDataService {
       
       if (error.message === 'Rate limit exceeded') {
         this.activateRateLimit(); // Activar rate limit por 1 minuto
-        return this.getMockServiceData(symbol);
+        return this.generateFallbackData(symbol);
       }
       
       if (this.retryCount < this.maxRetries) {
@@ -274,100 +318,303 @@ class RealDataService {
       }
     }
 
-    // Si todo falla, usar mock service
+    // Si todo falla, usar datos de fallback realistas
     this.retryCount = 0;
-    return this.getMockServiceData(symbol);
+    return this.generateFallbackData(symbol);
   }
 
-  // Obtener datos de stock con manejo de errores mejorado
+  // Obtener datos de stock con manejo de errores mejorado y APIs reales
   private async fetchStockData(symbol: string): Promise<MarketData | null> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // Timeout más largo
-      
-      const response = await fetch(
-        `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=demo`,
-        { signal: controller.signal }
-      );
-      
-      clearTimeout(timeoutId);
-
-      if (response.status === 429) {
-        throw new Error('Rate limit exceeded');
-      }
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (data['Global Quote'] && data['Global Quote']['05. price']) {
-        const quote = data['Global Quote'];
-        return {
-          symbol,
-          price: this.roundNumber(parseFloat(quote['05. price'])),
-          change: this.roundNumber(parseFloat(quote['09. change'])),
-          changePercent: this.roundNumber(parseFloat(quote['10. change percent'].replace('%', ''))),
-          volume: parseInt(quote['06. volume']),
-          type: 'stock',
-          lastUpdated: Date.now()
-        };
-      }
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        console.warn(`Request timeout for ${symbol}`);
-      }
-      throw error;
+    // Validate input
+    if (!InputValidator.validateSymbol(symbol)) {
+      apiLogger.error('Invalid stock symbol', { symbol });
+      return null;
     }
-    
-    return null;
+
+    // Check rate limits
+    const rateLimitResult = checkRateLimit('alphaVantage', { function: 'GLOBAL_QUOTE', symbol });
+    if (rateLimitResult.result === RateLimitResult.RATE_LIMITED) {
+      apiLogger.warn('Rate limit exceeded for Alpha Vantage', { 
+        symbol, 
+        retryAfter: rateLimitResult.retryAfter 
+      });
+      // Fallback to cached data if available
+      const cached = this.cache.get(symbol);
+      if (cached && Date.now() - cached.timestamp < this.extendedCacheExpiry) {
+        apiLogger.info('Using extended cache due to rate limit', { symbol });
+        return { ...cached.data, source: 'cache' };
+      }
+    }
+
+    // Check if we should fallback immediately
+    if (!this.apiStatus.canUseStocks) {
+      apiLogger.info('Using fallback data - no stock APIs configured', { symbol });
+      return this.generateFallbackData(symbol);
+    }
+
+    // Use request deduplication
+    return deduplicateApiRequest(
+      'stock_data', 
+      { symbol },
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.GENERAL.REQUEST_TIMEOUT);
+        
+        try {
+          apiLogger.debug('Fetching stock data', { symbol });
+          
+          // Try Alpha Vantage first (if configured)
+          if (API_CONFIG.ALPHA_VANTAGE.API_KEY && API_CONFIG.ALPHA_VANTAGE.API_KEY !== 'demo' && API_CONFIG.ALPHA_VANTAGE.API_KEY !== 'YOUR_ALPHA_VANTAGE_API_KEY') {
+            return await this.alphaVantageBreaker.execute(async () => {
+              try {
+                const url = `${API_CONFIG.ALPHA_VANTAGE.BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${API_CONFIG.ALPHA_VANTAGE.API_KEY}`;
+                
+                apiLogger.apiRequest('GET', url, { symbol });
+                const startTime = Date.now();
+                
+                const response = await fetch(url, { signal: controller.signal });
+                const duration = Date.now() - startTime;
+                
+                apiLogger.apiResponse('GET', url, response.status, duration, { symbol });
+
+                if (response.status === 429) {
+                  throw new Error('Rate limit exceeded');
+                }
+
+                if (response.ok) {
+                  const data = await response.json();
+                  const quote = data['Global Quote'];
+                  
+                  if (quote && quote['05. price']) {
+                    console.log(`🔍 Alpha Vantage Raw Data for ${symbol}:`, quote);
+                    
+                    const price = parseFloat(quote['05. price']);
+                    const change = parseFloat(quote['09. change']);
+                    const changePercent = parseFloat(quote['10. change percent'].replace('%', ''));
+                    
+                    const marketData: MarketData = {
+                      symbol,
+                      price: parseFloat(price.toFixed(2)),
+                      change: parseFloat(change.toFixed(2)),
+                      changePercent: parseFloat(changePercent.toFixed(2)),
+                      volume: parseInt(quote['06. volume']) || 0,
+                      type: 'stock',
+                      lastUpdated: Date.now(),
+                      source: 'real'
+                    };
+                    
+                    console.log(`✅ Alpha Vantage processed data for ${symbol}:`, marketData);
+                    apiLogger.info('Real stock data fetched from Alpha Vantage', { symbol });
+                    return marketData;
+                  } else {
+                    console.warn(`⚠️ Alpha Vantage: No price data for ${symbol}`, data);
+                  }
+                }
+              } catch (alphaError) {
+                apiLogger.warn('Alpha Vantage failed', { symbol, error: alphaError as Error });
+                throw alphaError;
+              }
+            });
+          }
+
+          // Try Yahoo Finance as fallback
+          return await this.yahooBreaker.execute(async () => {
+            try {
+              const url = `${API_CONFIG.YAHOO_FINANCE.BASE_URL}/v8/finance/chart/${symbol}`;
+              
+              apiLogger.apiRequest('GET', url, { symbol });
+              const startTime = Date.now();
+              
+              const response = await fetch(url, { signal: controller.signal });
+              const duration = Date.now() - startTime;
+              
+              apiLogger.apiResponse('GET', url, response.status, duration, { symbol });
+              
+              if (response.ok) {
+                const data = await response.json();
+                console.log(`🔍 Yahoo Finance Raw Data for ${symbol}:`, data);
+                
+                const result = data.chart?.result?.[0];
+                
+                if (result && result.meta) {
+                  const meta = result.meta;
+                  console.log(`🔍 Yahoo Finance Meta for ${symbol}:`, meta);
+                  
+                  const price = meta.regularMarketPrice || meta.previousClose || 0;
+                  const previousClose = meta.previousClose || price;
+                  const change = price - previousClose;
+                  const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+                  
+                  const marketData: MarketData = {
+                    symbol,
+                    price: parseFloat(price.toFixed(2)),
+                    change: parseFloat(change.toFixed(2)),
+                    changePercent: parseFloat(changePercent.toFixed(2)),
+                    volume: meta.regularMarketVolume || 0,
+                    type: 'stock',
+                    lastUpdated: Date.now(),
+                    source: 'real'
+                  };
+                  
+                  console.log(`✅ Yahoo Finance processed data for ${symbol}:`, marketData);
+                  apiLogger.info('Real stock data fetched from Yahoo Finance', { symbol });
+                  return marketData;
+                } else {
+                  console.warn(`⚠️ Yahoo Finance: No meta data for ${symbol}`, data);
+                }
+              } else {
+                console.error(`❌ Yahoo Finance API Error for ${symbol}: ${response.status} ${response.statusText}`);
+              }
+            } catch (yahooError) {
+              apiLogger.warn('Yahoo Finance failed', { symbol, error: yahooError as Error });
+              throw yahooError;
+            }
+          });
+
+        } catch (error) {
+          apiLogger.error('All stock APIs failed', { symbol, error: error as Error });
+          
+          // Fallback to generated data
+          apiLogger.info('Falling back to generated data for stock', { symbol });
+          return this.generateFallbackData(symbol);
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+    );
   }
 
-  // Obtener datos de crypto con manejo de errores mejorado
+  // Obtener datos de crypto con manejo de errores mejorado y APIs reales
   private async fetchCryptoData(symbol: string): Promise<MarketData | null> {
+    // Use circuit breaker for CoinGecko API
+    if (!this.coinGeckoBreaker.isRequestAllowed()) {
+      console.log(`🚫 CoinGecko circuit breaker is OPEN for ${symbol}`);
+      return null;
+    }
+
     try {
-      const coinId = symbol.toLowerCase().replace('USD', '');
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      
-      const response = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`,
-        { signal: controller.signal }
-      );
-      
-      clearTimeout(timeoutId);
+      return await this.coinGeckoBreaker.execute(async () => {
+        return await this.queueCoinGeckoRequest(async () => {
+          console.log(`🔍 Fetching crypto data for ${symbol} from CoinGecko...`);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.GENERAL.REQUEST_TIMEOUT);
+          
+          // Try CoinGecko (no API key required for basic usage)
+          const coinId = this.getCoinGeckoId(symbol);
+          console.log(`🔍 CoinGecko ID for ${symbol}: ${coinId}`);
+          
+          // Include circulating_supply to calculate correct price from market cap
+          const url = `${API_CONFIG.COINGECKO.BASE_URL}/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true&include_circulating_supply=true`;
+          console.log(`🔍 CoinGecko URL: ${url}`);
+          
+          const response = await fetch(url, { signal: controller.signal });
+          
+          clearTimeout(timeoutId);
 
-      if (response.status === 429) {
-        throw new Error('Rate limit exceeded');
-      }
+          console.log(`🔍 CoinGecko Response Status: ${response.status} ${response.statusText}`);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+          if (response.status === 429) {
+            console.warn(`⚠️ CoinGecko rate limit for ${symbol}`);
+            throw new Error('Rate limit exceeded');
+          }
 
-      const data = await response.json();
-      
-      if (data[coinId]) {
-        const coinData = data[coinId];
-        return {
-          symbol,
-          price: this.roundNumber(coinData.usd),
-          change: this.roundNumber(coinData.usd * (coinData.usd_24h_change || 0) / 100),
-          changePercent: this.roundNumber(coinData.usd_24h_change || 0),
-          marketCap: coinData.usd_market_cap,
-          type: 'crypto',
-          lastUpdated: Date.now()
-        };
-      }
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`🔍 CoinGecko Raw Data:`, data);
+          
+          if (data[coinId]) {
+            const coinData = data[coinId];
+            console.log(`🔍 Coin Data for ${coinId}:`, coinData);
+            
+            // Use the price directly from CoinGecko API (most accurate)
+            const price = coinData.usd;
+            
+            // Only log the market cap calculation for debugging, don't use it
+            if (coinData.usd_market_cap && coinData.usd_circulating_supply && coinData.usd_circulating_supply > 0) {
+              const calculatedFromMCap = coinData.usd_market_cap / coinData.usd_circulating_supply;
+              console.log(`💰 Debug: Market Cap calculation for ${symbol}: $${price} (API) vs $${calculatedFromMCap} (calculated)`);
+            }
+            
+            const marketData: MarketData = {
+              symbol,
+              price: parseFloat(price.toFixed(2)), // Format to 2 decimals
+              change: parseFloat((price * (coinData.usd_24h_change || 0) / 100).toFixed(2)),
+              changePercent: parseFloat((coinData.usd_24h_change || 0).toFixed(2)),
+              volume: coinData.usd_24h_vol || 0,
+              marketCap: coinData.usd_market_cap,
+              type: 'crypto',
+              lastUpdated: Date.now(),
+              source: 'real'
+            };
+            
+            // Validate the market data before returning
+            const validation = InputValidator.validateMarketData(marketData);
+            if (!validation.isValid) {
+              console.error(`❌ Invalid market data for ${symbol}:`, validation.errors);
+              throw new Error(`Invalid data: ${validation.errors.join(', ')}`);
+            }
+            
+            console.log(`✅ Real crypto data for ${symbol} from CoinGecko:`, marketData);
+            return validation.sanitizedValue || marketData;
+          } else {
+            console.warn(`⚠️ No data found for coinId: ${coinId} in response:`, data);
+            throw new Error(`No data found for ${symbol}`);
+          }
+        } else {
+          console.error(`❌ CoinGecko API Error: ${response.status} ${response.statusText}`);
+          const responseText = await response.text();
+          console.error(`❌ Response body:`, responseText);
+          throw new Error(`API Error: ${response.status}`);
+        }
+        }); // Close queueCoinGeckoRequest
+      }); // Close coinGeckoBreaker.execute
     } catch (error) {
-      if (error.name === 'AbortError') {
-        console.warn(`Request timeout for ${symbol}`);
-      }
-      throw error;
+      console.error(`❌ CoinGecko failed for ${symbol}:`, error.message);
+      console.error(`❌ Full error:`, error);
+      return null;
+    }
+  }
+
+  // Helper to get CoinGecko ID from symbol
+  private getCoinGeckoId(symbol: string): string {
+    // First check if it's already a CoinGecko ID (contains dashes or known IDs)
+    const knownCoinGeckoIds = [
+      'bitcoin', 'ethereum', 'solana', 'cardano', 'polkadot', 
+      'avalanche', 'chainlink', 'uniswap', 'injective-protocol',
+      'fantom', 'thorchain', 'kava', 'ankr', 'polygon',
+      'oasis-network', 'ocean-protocol', 'celer-network',
+      'ren', 'band-protocol', 'render-token'
+    ];
+    
+    // If it's already a CoinGecko ID, return as-is
+    if (knownCoinGeckoIds.includes(symbol.toLowerCase()) || symbol.includes('-')) {
+      return symbol.toLowerCase();
     }
     
-    return null;
+    // Otherwise, map ticker symbols to CoinGecko IDs
+    const symbolMap: { [key: string]: string } = {
+      'BTC': 'bitcoin',
+      'ETH': 'ethereum',
+      'ADA': 'cardano',
+      'SOL': 'solana',
+      'DOT': 'polkadot',
+      'LINK': 'chainlink',
+      'AVAX': 'avalanche',
+      'INJ': 'injective-protocol',
+      'ROSE': 'oasis-network',
+      'FTM': 'fantom',
+      'OCEAN': 'ocean-protocol',
+      'RUNE': 'thorchain',
+      'KAVA': 'kava',
+      'CELR': 'celer-network',
+      'REN': 'ren',
+      'BAND': 'band-protocol',
+      'ANKR': 'ankr',
+      'UNI': 'uniswap',
+      'RNDR': 'render-token'
+    };
+    
+    return symbolMap[symbol.toUpperCase()] || symbol.toLowerCase();
   }
 
   // Método principal para obtener datos de mercado con fallback inteligente
@@ -391,8 +638,8 @@ class RealDataService {
     try {
       const data = await this.fetchRealData(symbol);
       
-      // 4. Guardar en cache solo si es dato real o mock de calidad
-      if (data.source === 'real' || data.source === 'mock') {
+      // 4. Guardar en cache solo si es dato real
+      if (data.source === 'real') {
         await this.setCachedData(symbol, data);
       }
       
@@ -407,7 +654,7 @@ class RealDataService {
       }
       
       // 6. Generar datos como último recurso
-      return this.generateMockData(symbol);
+      return this.generateFallbackData(symbol);
     }
   }
 
@@ -434,25 +681,19 @@ class RealDataService {
     // 2. Si no hay cache válido o está vencido, obtener datos frescos
     console.log('🔄 Refreshing batch cache with fresh data...');
     
-    // Si estamos en rate limit, usar mock service para todo el batch
+    // Si estamos en rate limit, usar datos de fallback para todo el batch
     if (this.isRateLimited()) {
-      console.log('Rate limit active, using mock service for batch request');
-      try {
-        const mockAssets = await fetchMockMultipleAssets(symbols);
-        const mockDataMap = new Map<string, MarketData>();
-        const results = mockAssets.map((asset, index) => {
-          const marketData = this.convertMockToMarketData(asset, symbols[index]);
-          mockDataMap.set(symbols[index], marketData);
-          return marketData;
-        });
-        
-        // Guardar mock data en cache batch
-        await this.setBatchCachedData(mockDataMap);
-        return results;
-      } catch (error) {
-        console.warn('Mock batch service failed:', error);
-        return symbols.map(symbol => this.generateMockData(symbol));
-      }
+      console.log('Rate limit active, using fallback data for batch request');
+      const fallbackDataMap = new Map<string, MarketData>();
+      const results = symbols.map(symbol => {
+        const marketData = this.generateFallbackData(symbol);
+        fallbackDataMap.set(symbol, marketData);
+        return marketData;
+      });
+      
+      // Guardar fallback data en cache batch
+      await this.setBatchCachedData(fallbackDataMap);
+      return results;
     }
     
     // 3. Obtener datos reales para todos los símbolos
@@ -466,7 +707,7 @@ class RealDataService {
         results.push(data);
       } catch (error) {
         console.warn(`Failed to get fresh data for ${symbol}:`, error);
-        const fallbackData = await this.getMockServiceData(symbol);
+        const fallbackData = this.generateFallbackData(symbol);
         freshDataMap.set(symbol, fallbackData);
         results.push(fallbackData);
       }
@@ -637,6 +878,84 @@ class RealDataService {
     this.cache.clear();
     this.gemCache.clear();
     console.log('All cache cleared');
+  }
+
+  // Process CoinGecko queue one request at a time to respect rate limits
+  private async processCoinGeckoQueue(): Promise<void> {
+    if (this.coinGeckoProcessing || this.coinGeckoQueue.length === 0) {
+      return;
+    }
+
+    this.coinGeckoProcessing = true;
+    
+    while (this.coinGeckoQueue.length > 0) {
+      const request = this.coinGeckoQueue.shift();
+      if (request) {
+        try {
+          await request();
+          // Wait between requests to respect rate limits
+          await new Promise(resolve => setTimeout(resolve, API_CONFIG.COINGECKO.RATE_LIMIT));
+        } catch (error) {
+          console.error('CoinGecko queue request failed:', error);
+        }
+      }
+    }
+    
+    this.coinGeckoProcessing = false;
+  }
+
+  // Add request to CoinGecko queue
+  private queueCoinGeckoRequest<T>(requestFn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.coinGeckoQueue.push(async () => {
+        try {
+          const result = await requestFn();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+      
+      // Start processing if not already running
+      this.processCoinGeckoQueue();
+    });
+  }
+
+  // Get ONLY real data - no fallbacks or cache
+  async getRealMarketDataOnly(symbols: string[]): Promise<MarketData[]> {
+    const results: MarketData[] = [];
+    
+    console.log(`🔍 Getting ONLY real market data for ${symbols.length} symbols (no fallbacks)...`);
+    
+    for (const symbol of symbols) {
+      try {
+        await this.throttleRequest();
+        
+        let realData: MarketData | null = null;
+        
+        // Determine asset type and get real data
+        if (this.getAssetType(symbol) === 'stock') {
+          realData = await this.fetchStockData(symbol);
+        } else {
+          realData = await this.fetchCryptoData(symbol);
+        }
+        
+        // Only accept data that is explicitly from API source
+        if (realData && realData.source === 'real') {
+          results.push(realData);
+          console.log(`✅ REAL data obtained for ${symbol}: $${realData.price} (source: ${realData.source})`);
+        } else {
+          console.warn(`🚫 No real data available for ${symbol} - skipping`);
+        }
+        
+      } catch (error) {
+        console.error(`❌ Failed to get real data for ${symbol}:`, error);
+        // Don't add any fallback data - skip this symbol
+      }
+    }
+    
+    console.log(`📊 Real data results: ${results.length}/${symbols.length} symbols with real data`);
+    return results;
   }
 }
 

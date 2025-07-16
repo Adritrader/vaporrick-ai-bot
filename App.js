@@ -14,18 +14,23 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TradingProvider } from './src/context/TradingContext';
+import { testAPIConfiguration, getDataSourceStatus } from './src/services/apiTestService';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import HomeScreen from './src/screens/HomeScreen';
 import GemFinderScreen from './src/screens/GemFinderScreenNew';
-import StrategyScreen from './src/screens/StrategyScreenNewEnhanced';
-import TradingScreen from './src/screens/TradingScreenNew';
-import DashboardScreen from './src/screens/DashboardScreen';
+import StrategyScreenNewEnhanced from './src/screens/StrategyScreenNewEnhanced_Simple';
+import TradingScreenNew from './src/screens/TradingScreenNew';
+import PortfolioScreen from './src/screens/DashboardScreen';
 import DocumentationScreen from './src/screens/DocumentationScreen';
+import BacktestScreen from './src/screens/BacktestScreen';
+import AlertScreen from './src/screens/AlertScreen';
 // import { AlertService } from './src/services/alertService';
 import { theme } from './src/theme/colors';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('trading');
+  const [currentScreen, setCurrentScreen] = useState('home');
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  const [showDocumentation, setShowDocumentation] = useState(false);
+  const [dataSourceStatus, setDataSourceStatus] = useState(null);
   const fadeAnim = useState(new Animated.Value(0))[0];
   const slideAnim = useState(new Animated.Value(50))[0];
 
@@ -33,6 +38,17 @@ export default function App() {
     // Initialize notification and background services
     const initializeServices = async () => {
       try {
+        // Test API configuration and data sources
+        console.log('🚀 Testing API configuration...');
+        const status = getDataSourceStatus();
+        setDataSourceStatus(status);
+        
+        if (status.overallStatus === 'Production Ready') {
+          console.log('✅ Using real market data!');
+        } else {
+          console.log('⚠️ Some APIs need configuration');
+        }
+        
         // Temporarily disabled for Expo Go compatibility
         // await AlertService.setupNotifications();
         // await AlertService.registerBackgroundFetch();
@@ -59,22 +75,60 @@ export default function App() {
     initializeServices();
   }, []);
 
-  const renderScreen = () => {
-    if (showDocumentation) {
-      return <DocumentationScreen />;
-    }
+  // Error handler for error boundary
+  const handleGlobalError = (error, errorInfo) => {
+    console.error('Global error caught:', error);
+    console.error('Error info:', errorInfo);
     
-    switch (activeTab) {
+    // In production, send to crash reporting service
+    if (!__DEV__) {
+      // TODO: Send to Sentry/Crashlytics
+      // Sentry.captureException(error, { extra: errorInfo });
+    }
+  };
+
+  const navigateToScreen = (screen) => {
+    setCurrentScreen(screen);
+  };
+
+  const goBack = () => {
+    setCurrentScreen('home');
+  };
+
+  const getScreenTitle = (screen) => {
+    const titles = {
+      'gemfinder': '💎 Gem Finder',
+      'strategies': '🧠 AI Strategies',
+      'trading': '⚡ Live Trading',
+      'portfolio': '📊 Portfolio',
+      'backtest': '📈 Backtesting',
+      'alerts': '🔔 Smart Alerts',
+      'analysis': '🔍 Market Analysis',
+      'documentation': '📚 Documentation',
+    };
+    return titles[screen] || 'VaporRick AI Bot';
+  };
+
+  const renderScreen = () => {
+    switch (currentScreen) {
+      case 'home':
+        return <HomeScreen onNavigate={navigateToScreen} onShowSettings={() => setShowSettingsMenu(true)} />;
       case 'gemfinder':
         return <GemFinderScreen />;
       case 'strategies':
-        return <StrategyScreen />;
-      case 'portfolio':
-        return <DashboardScreen />;
+        return <StrategyScreenNewEnhanced />;
       case 'trading':
-        return <TradingScreen />;
+        return <TradingScreenNew />;
+      case 'portfolio':
+        return <PortfolioScreen />;
+      case 'backtesting':
+        return <BacktestScreen />;
+      case 'alerts':
+        return <AlertScreen />;
+      case 'documentation':
+        return <DocumentationScreen />;
       default:
-        return <TradingScreen />;
+        return <HomeScreen onNavigate={navigateToScreen} onShowSettings={() => setShowSettingsMenu(true)} />;
     }
   };
 
@@ -125,7 +179,7 @@ export default function App() {
       case 'documentation':
         // Open documentation
         setShowSettingsMenu(false);
-        setShowDocumentation(true);
+        setCurrentScreen('documentation');
         break;
       case 'support':
         // Open support
@@ -273,128 +327,97 @@ export default function App() {
     </Modal>
   );
 
-  const TabButton = ({ title, tabKey, icon, gradient, activeIcon }) => {
-    const isActive = activeTab === tabKey;
-    
-    return (
-      <TouchableOpacity
-        style={[styles.tabButton, isActive && styles.activeTabButton]}
-        onPress={() => setActiveTab(tabKey)}
-        activeOpacity={0.8}
-      >
-        {isActive && (
-          <LinearGradient
-            colors={gradient}
-            style={styles.activeTabGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
-        )}
-        <Text style={[styles.tabIcon, isActive && styles.activeTabIcon]}>
-          {isActive ? activeIcon : icon}
-        </Text>
-        <Text style={[styles.tabTitle, isActive && styles.activeTabTitle]}>
-          {title}
-        </Text>
-        {isActive && <View style={styles.activeIndicator} />}
-      </TouchableOpacity>
-    );
-  };
-
   return (
-    <TradingProvider>
-      <LinearGradient
-        colors={theme.gradients.background}
-        style={styles.container}
-      >
-        <StatusBar 
-          barStyle="light-content" 
-          backgroundColor={theme.background} 
-          translucent={false}
-        />
-        
-        {/* Global Header with Settings Button */}
-        <View style={styles.globalHeader}>
-          <LinearGradient
-            colors={[theme.surface, theme.surfaceVariant]}
-            style={styles.headerGradient}
-          >
-            <View style={styles.headerContent}>
-              {showDocumentation && (
-                <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={() => setShowDocumentation(false)}
-                >
-                  <Text style={styles.backButtonText}>← Volver</Text>
-                </TouchableOpacity>
-              )}
-              <Text style={styles.headerTitle}>VaporRick AI Bot</Text>
-              <TouchableOpacity
-                style={styles.headerSettingsButton}
-                onPress={() => setShowSettingsMenu(true)}
-              >
-                <LinearGradient
-                  colors={['rgba(0, 230, 118, 0.2)', 'rgba(33, 150, 243, 0.2)']}
-                  style={styles.headerSettingsGradient}
-                >
-                  <Text style={styles.headerSettingsIcon}>⚙️</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </LinearGradient>
-        </View>
-
-        <Animated.View 
-          style={[
-            styles.content,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
+    <ErrorBoundary onError={handleGlobalError}>
+      <TradingProvider>
+        <LinearGradient
+          colors={theme.gradients.background}
+          style={styles.container}
         >
-          {renderScreen()}
-        </Animated.View>
+          <StatusBar 
+            barStyle="light-content" 
+            backgroundColor={theme.background} 
+            translucent={false}
+          />
+          
+          {/* Compact Global Header */}
+          {currentScreen !== 'home' && (
+            <ErrorBoundary fallback={
+              <View style={styles.headerError}>
+                <Text style={styles.headerErrorText}>Header Error</Text>
+              </View>
+            }>
+              <View style={styles.globalHeader}>
+                <LinearGradient
+                  colors={[theme.surface, theme.surfaceVariant]}
+                  style={styles.headerGradient}
+                >
+                  <View style={styles.headerContent}>
+                    <TouchableOpacity
+                      style={styles.backButton}
+                      onPress={goBack}
+                    >
+                      <Text style={styles.backButtonText}>← Home</Text>
+                    </TouchableOpacity>
+                    <View style={styles.headerCenterContainer}>
+                      <Text style={styles.headerTitle}>
+                        {getScreenTitle(currentScreen)}
+                      </Text>
+                      {dataSourceStatus && (
+                        <View style={styles.dataStatusIndicator}>
+                          <Text style={[
+                            styles.dataStatusText,
+                            { color: dataSourceStatus.overallStatus === 'Production Ready' ? theme.success : theme.warning }
+                          ]}>
+                            {dataSourceStatus.overallStatus === 'Production Ready' ? '🔴 REAL' : '⚠️ CONFIG'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <TouchableOpacity
+                      style={styles.headerSettingsButton}
+                      onPress={() => setShowSettingsMenu(true)}
+                    >
+                      <LinearGradient
+                        colors={['rgba(0, 230, 118, 0.2)', 'rgba(33, 150, 243, 0.2)']}
+                        style={styles.headerSettingsGradient}
+                      >
+                        <Text style={styles.headerSettingsIcon}>⚙️</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+              </View>
+            </ErrorBoundary>
+          )}
 
-        {!showDocumentation && (
-          <LinearGradient
-            colors={[theme.surface, theme.surfaceVariant]}
-            style={styles.tabBar}
+          <Animated.View 
+            style={[
+              styles.content,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
           >
-            <TabButton 
-              title="Gems" 
-              tabKey="gemfinder" 
-              icon="💎" 
-              activeIcon="🔍"
-              gradient={theme.gradients.primary}
-            />
-            <TabButton 
-              title="Info" 
-              tabKey="portfolio" 
-              icon="📊" 
-              activeIcon="📈"
-              gradient={theme.gradients.primary}
-            />
-            <TabButton 
-              title="AI" 
-              tabKey="strategies" 
-              icon="🤖" 
-              activeIcon="🧠"
-              gradient={theme.gradients.primary}
-            />
-            <TabButton 
-              title="Trading" 
-              tabKey="trading" 
-              icon="⚡" 
-              activeIcon="🚀"
-              gradient={theme.gradients.success}
-            />
-          </LinearGradient>
-        )}
+            <ErrorBoundary 
+              fallback={
+                <View style={styles.screenError}>
+                  <Text style={styles.screenErrorText}>Screen Error</Text>
+                  <TouchableOpacity onPress={goBack} style={styles.goBackButton}>
+                    <Text style={styles.goBackText}>← Go Back</Text>
+                  </TouchableOpacity>
+                </View>
+              }
+            >
+              {renderScreen()}
+            </ErrorBoundary>
+          </Animated.View>
 
-        {renderSettingsMenu()}
-      </LinearGradient>
-    </TradingProvider>
+          {renderSettingsMenu()}
+        </LinearGradient>
+      </TradingProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -404,44 +427,59 @@ const styles = StyleSheet.create({
   },
   globalHeader: {
     paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.sm,
+    paddingTop: theme.spacing.lg,
     paddingBottom: theme.spacing.xs,
   },
   headerGradient: {
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.lg,
-    ...theme.shadows.medium,
+    padding: theme.spacing.sm,
+    borderRadius: theme.borderRadius.md,
+    ...theme.shadows.small,
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    position: 'relative',
   },
   backButton: {
-    position: 'absolute',
-    left: 0,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.sm,
     backgroundColor: 'rgba(0, 230, 118, 0.2)',
   },
   backButtonText: {
     color: theme.primary,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: theme.textPrimary,
+    textAlign: 'center',
+  },
+  headerCenterContainer: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dataStatusIndicator: {
+    marginTop: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    backgroundColor: theme.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  dataStatusText: {
+    fontSize: 10,
+    fontWeight: '600',
     textAlign: 'center',
   },
   headerSettingsButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     overflow: 'hidden',
     ...theme.shadows.small,
   },
@@ -451,80 +489,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerSettingsIcon: {
-    fontSize: 16,
+    fontSize: 18,
     color: theme.textPrimary,
   },
   content: {
     flex: 1,
-    marginTop: theme.spacing.sm,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    paddingTop: theme.spacing.sm,
-    paddingBottom: theme.spacing.md,
-    paddingHorizontal: theme.spacing.sm,
-    borderTopLeftRadius: theme.borderRadius.xl,
-    borderTopRightRadius: theme.borderRadius.xl,
-    ...theme.shadows.large,
-  },
-  tabButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.xs,
-    borderRadius: theme.borderRadius.md,
-    marginHorizontal: theme.spacing.xs,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  activeTabButton: {
-    transform: [{ scale: 1.02 }],
-  },
-  activeTabGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: theme.borderRadius.lg,
-    opacity: 0.15,
-  },
-  tabIcon: {
-    fontSize: 14,
-    marginBottom: 1,
-    color: theme.textMuted,
-  },
-  activeTabIcon: {
-    color: theme.primary,
-    textShadowColor: 'rgba(0, 230, 118, 0.5)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 8,
-  },
-  tabTitle: {
-    fontSize: 9,
-    fontWeight: '500',
-    color: theme.textMuted,
-    textAlign: 'center',
-    lineHeight: 12,
-  },
-  activeTabTitle: {
-    color: theme.textPrimary,
-    fontWeight: '600',
-  },
-  activeIndicator: {
-    position: 'absolute',
-    top: 4,
-    left: '50%',
-    marginLeft: -12,
-    width: 24,
-    height: 3,
-    backgroundColor: theme.primary,
-    borderRadius: 2,
-    shadowColor: theme.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 4,
+    marginTop: theme.spacing.xs,
   },
   settingsOverlay: {
     flex: 1,
@@ -575,5 +545,39 @@ const styles = StyleSheet.create({
   settingsOptionSubtitle: {
     fontSize: 14,
     color: theme.textSecondary,
+  },
+  // Error boundary styles
+  headerError: {
+    backgroundColor: theme.error,
+    padding: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  headerErrorText: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  screenError: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: theme.spacing.lg,
+  },
+  screenErrorText: {
+    fontSize: 18,
+    color: theme.textSecondary,
+    marginBottom: theme.spacing.lg,
+    textAlign: 'center',
+  },
+  goBackButton: {
+    backgroundColor: theme.primary,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+  },
+  goBackText: {
+    color: theme.background,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
