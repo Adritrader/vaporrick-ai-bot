@@ -1,121 +1,99 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  RefreshControl,
-  Animated,
-  Dimensions,
-  Alert,
-  Modal,
+    View,
+    Text,
+    FlatList,
+    TouchableOpacity,
+    StyleSheet,
+    ActivityIndicator,
+    ScrollView,
+    RefreshControl,
+    Animated,
+    Dimensions,
+    Alert,
+    Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../theme/colors';
-import { integratedDataService } from '../services/integratedDataService';
-import { autoAlertService } from '../services/autoAlertService'; // Import autoAlertService
+import { realGemSearchService, RealGemSearchResult } from '../services/realGemSearchService';
+import { autoAlertService } from '../services/autoAlertService';
+import { firebaseService } from '../services/firebaseService';
 import GemDetailScreenNew from './GemDetailScreenNew';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-interface GemProject {
-  id: string;
-  symbol: string;
-  name: string;
-  price: number;
-  marketCap: number;
-  volume24h: number;
-  change24h: number;
-  description: string;
-  aiScore: number;
-  risk: 'Low' | 'Medium' | 'High';
-  category: string;
-  launchDate: string;
-  type: 'crypto' | 'stock';
-  social: {
-    twitter: boolean;
-    telegram: boolean;
-    discord: boolean;
+// Define the interface that GemDetailScreenNew expects
+interface GemDetailProps {
+  gem: {
+    id: string;
+    symbol: string;
+    name: string;
+    price: number;
+    marketCap: number;
+    volume24h: number;
+    change24h: number;
+    description: string;
+    aiScore: number;
+    risk: string;
+    category: string;
+    launchDate: string;
+    type: 'crypto' | 'stock';
+    social: {
+      twitter: boolean;
+      telegram: boolean;
+      discord: boolean;
+    };
+    fundamentals: {
+      team: number;
+      tech: number;
+      tokenomics: number;
+      community: number;
+    };
+    aiAnalysis: string;
+    potential: string;
+    timeframe: string;
+    lastUpdated: number;
   };
-  fundamentals: {
-    team: number;
-    tech: number;
-    tokenomics: number;
-    community: number;
-  };
-  aiAnalysis: string;
-  potential: string;
-  timeframe: string;
-  lastUpdated: number;
+  onBack: () => void;
 }
 
 const GemFinderScreen: React.FC = () => {
-  const [gems, setGems] = useState<GemProject[]>([]);
+  const [gems, setGems] = useState<RealGemSearchResult[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const [scanningType, setScanningType] = useState<'crypto' | 'stocks' | null>(null); // Track which button is scanning
+  const [scanningType, setScanningType] = useState<'crypto' | 'stocks' | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string>('');
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'crypto' | 'stocks' | 'defi' | 'gaming' | 'ai' | 'tech' | 'fintech' | 'growth' | 'infrastructure' | 'ultra-low' | 'low' | 'medium' | 'big'>('all');
-  const [selectedGem, setSelectedGem] = useState<GemProject | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'crypto' | 'stocks' | 'high' | 'medium' | 'low'>('all');
+  const [selectedGem, setSelectedGem] = useState<RealGemSearchResult | null>(null);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [scanningAnimation] = useState(new Animated.Value(0));
+  const [lastScanTime, setLastScanTime] = useState<{ [key: string]: number }>({});
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Cargar datos cacheados si existen y son recientes
-    console.log('🚀 GemFinder Started - Checking for cached gems...');
+    console.log('🚀 Real Gem Finder Started - Using real APIs with AI...');
     
-    // Intentar cargar datos cacheados válidos
-    loadCachedGemsIfValid();
+    // Load cached gems and scan times
+    loadCachedData();
     
-    // Inicializar animaciones
-    startAIScan();
+    // Initialize animations
+    startAnimations();
     
-    // Cleanup function para prevenir memory leaks
+    // Load gems from Firebase
+    loadGemsFromFirebase();
+    
+    // Cleanup function
     return () => {
-      // Limpiar intervalos activos
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
-        console.log('🧹 Cleaned up interval in GemFinder useEffect');
       }
-      
-      // Limpiar cualquier timeout o animación pendiente
-      // Si hay otras animaciones o timers, limpiarlos aquí también
     };
-  }, []); // Empty dependency array - solo ejecutar una vez
+  }, []);
 
-  // Load cached gems if they are valid and recent
-  const loadCachedGemsIfValid = async () => {
-    try {
-      console.log('📋 Checking for valid cached gems...');
-      const cachedGems = await integratedDataService.getGems(false); // No force refresh
-      
-      if (cachedGems && cachedGems.length > 0) {
-        // Check if gems are recent (less than 2 hours old)
-        const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
-        const recentGems = cachedGems.filter(gem => gem.lastUpdated > twoHoursAgo);
-        
-        if (recentGems.length > 0) {
-          setGems(recentGems);
-          console.log(`✅ Loaded ${recentGems.length} recent cached gems`);
-        } else {
-          console.log('⏰ Cached gems are too old, waiting for fresh scan');
-        }
-      } else {
-        console.log('📭 No cached gems found, waiting for user scan');
-      }
-    } catch (error) {
-      console.warn('⚠️ Error loading cached gems:', error);
-    }
-  };
-
-  useEffect(() => {
-    // Inicializar animaciones
+  const startAnimations = () => {
+    // Initialize animations
     const fadeAnimation = Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 800,
@@ -138,509 +116,497 @@ const GemFinderScreen: React.FC = () => {
       ])
     );
 
-    // Iniciar animaciones
     fadeAnimation.start();
     scanningAnimationLoop.start();
-
-    // Cleanup function para parar animaciones
-    return () => {
-      fadeAnimation.stop();
-      scanningAnimationLoop.stop();
-      console.log('🧹 Stopped animations in GemFinder');
-    };
-  }, []); // Empty dependency array
-
-  const startAIScan = async () => {
-    console.log('🔍 AI Gem Finder Started - Scanning low caps...');
   };
 
-  // Helper functions
-  const getCategoryForSymbol = (symbol: string, type: 'crypto' | 'stock'): string => {
-    const cryptoCategories: { [key: string]: string } = {
-      'SOL': 'infrastructure',
-      'ADA': 'infrastructure', 
-      'DOT': 'infrastructure',
-      'MATIC': 'infrastructure',
-      'AVAX': 'infrastructure',
-      'LINK': 'defi',
-      'UNI': 'defi'
-    };
+  // Generate basic AI analysis for a gem
+  const generateBasicAIAnalysis = (gem: RealGemSearchResult) => {
+    const changePercent = gem.changePercent || 0;
+    const volume = gem.volume || 0;
+    const marketCap = gem.marketCap || 0;
     
-    const stockCategories: { [key: string]: string } = {
-      'PLTR': 'tech',
-      'RBLX': 'gaming',
-      'HOOD': 'fintech',
-      'COIN': 'fintech',
-      'U': 'tech'
-    };
+    let analysis = "Based on current market data: ";
+    let recommendation: 'strong_buy' | 'buy' | 'hold' | 'sell' | 'strong_sell' = "hold";
+    let confidence = 60;
+    let score = 5;
+    let potential: 'very_low' | 'low' | 'medium' | 'high' | 'very_high' = "medium";
+    let riskLevel: 'low' | 'medium' | 'high' = "medium";
+    let qualityScore = 6;
+    let priceTarget30d = (gem.price || 0) * 1.1;
     
-    if (type === 'crypto') {
-      return cryptoCategories[symbol] || 'defi';
+    // More generous analysis for better gem discovery
+    if (changePercent > 2) { // Reduced from 5 to 2
+      analysis += "Positive momentum detected. ";
+      recommendation = "buy";
+      confidence = 75;
+      score = 7;
+      potential = "high";
+      priceTarget30d = (gem.price || 0) * 1.15;
+    } else if (changePercent > 0.5) { // New range for slight positive movement
+      analysis += "Slight upward movement observed. ";
+      recommendation = "buy";
+      confidence = 65;
+      score = 6;
+      potential = "high";
+      priceTarget30d = (gem.price || 0) * 1.08;
+    } else if (changePercent < -10) { // Changed from -5 to -10 for less restrictive sell signals
+      analysis += "Significant downward pressure. ";
+      recommendation = "sell";
+      confidence = 70;
+      score = 3;
+      potential = "low";
+      riskLevel = "high";
+      qualityScore = 4;
+      priceTarget30d = (gem.price || 0) * 0.9;
+    } else if (changePercent < -3) { // New range for moderate decline
+      analysis += "Moderate decline, potential buying opportunity. ";
+      recommendation = "hold";
+      confidence = 55;
+      score = 4;
+      potential = "medium";
+      riskLevel = "medium";
+      qualityScore = 5;
+      priceTarget30d = (gem.price || 0) * 0.95;
     } else {
-      return stockCategories[symbol] || 'tech';
+      analysis += "Price showing stability. ";
     }
-  };
-
-  const generateLaunchDate = (symbol: string): string => {
-    const dates: { [key: string]: string } = {
-      'SOL': '2020-03-16',
-      'ADA': '2017-09-29',
-      'DOT': '2020-08-18',
-      'MATIC': '2019-04-28',
-      'AVAX': '2020-09-21',
-      'LINK': '2017-09-19',
-      'PLTR': '2020-09-30',
-      'RBLX': '2021-03-10',
-      'HOOD': '2021-07-29',
-      'COIN': '2021-04-14',
-      'U': '2019-05-23'
-    };
-    return dates[symbol] || '2024-01-01';
-  };
-
-  const generateTokenomicsScore = (symbol: string, type: 'crypto' | 'stock'): number => {
-    // For stocks, this represents financial health
-    // For crypto, this represents tokenomics
-    const baseScore = 70;
-    const variation = Math.abs(symbol.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 25;
-    return baseScore + variation;
-  };
-
-  const generatePotential = (changePercent: number, type: 'crypto' | 'stock'): string => {
-    const isPositive = changePercent > 0;
-    const magnitude = Math.abs(changePercent);
     
-    if (type === 'crypto') {
-      if (magnitude > 10) return isPositive ? 'Explosive growth potential' : 'Recovery opportunity';
-      if (magnitude > 5) return isPositive ? 'Strong upside momentum' : 'Consolidation phase';
-      return 'Steady growth expected';
+    // More generous volume analysis
+    if (volume > 500000) { // Reduced from 1000000 to 500000
+      analysis += "Good trading volume indicates healthy interest. ";
+      confidence += 10;
+      score += 1;
+    } else if (volume > 50000) { // Reduced from 100000 to 50000
+      analysis += "Moderate trading activity. ";
+    } else if (volume > 10000) { // New range for low but acceptable volume
+      analysis += "Low but acceptable trading volume. ";
     } else {
-      if (magnitude > 5) return isPositive ? 'Strong growth trajectory' : 'Value opportunity';
-      if (magnitude > 2) return isPositive ? 'Positive fundamentals' : 'Accumulation phase';
-      return 'Long-term value play';
+      analysis += "Very low trading volume, exercise caution. ";
+      confidence -= 5;
+      score -= 0.5;
     }
-  };
-
-  const generateTimeframe = (type: 'crypto' | 'stock'): string => {
-    const timeframes = type === 'crypto' 
-      ? ['1-3 months', '3-6 months', '6-12 months']
-      : ['6-12 months', '12-18 months', '18-24 months'];
     
-    return timeframes[Math.floor(Math.random() * timeframes.length)];
-  };
-
-
-
-  const getDescriptionForSymbol = (symbol: string): string => {
-    const descriptions: { [key: string]: string } = {
-      'SOL': 'High-performance blockchain supporting smart contracts',
-      'ADA': 'Proof-of-stake blockchain platform with academic research',
-      'DOT': 'Multi-chain protocol enabling blockchain interoperability',
-      'MATIC': 'Ethereum scaling solution with low fees',
-      'AVAX': 'Platform for DeFi and enterprise blockchain deployments',
-      'LINK': 'Decentralized oracle network for smart contracts',
-      'UNI': 'Leading decentralized exchange protocol'
+    // Market cap analysis for better categorization
+    if (marketCap > 10000000000) { // $10B+
+      analysis += "Large cap asset with established market presence. ";
+      riskLevel = "low";
+      confidence += 5;
+    } else if (marketCap > 1000000000) { // $1B-$10B
+      analysis += "Mid cap asset with growth potential. ";
+      riskLevel = "medium";
+    } else if (marketCap > 100000000) { // $100M-$1B
+      analysis += "Small cap asset with higher growth potential. ";
+      riskLevel = "medium";
+      potential = potential === "low" ? "medium" : potential;
+    } else if (marketCap > 10000000) { // $10M-$100M
+      analysis += "Micro cap asset with high risk/reward potential. ";
+      riskLevel = "high";
+      if (changePercent > 0) {
+        potential = "high";
+        score += 1;
+      }
+    } else if (marketCap > 1000000) { // $1M-$10M
+      analysis += "Very small cap asset, speculative investment. ";
+      riskLevel = "high";
+      if (changePercent > 5) {
+        potential = "very_high";
+        recommendation = "buy";
+        score += 2;
+      }
+    }
+    
+    // Ensure minimum scores for discovery
+    score = Math.max(3, Math.min(10, score));
+    confidence = Math.max(40, Math.min(95, confidence));
+    qualityScore = Math.max(3, Math.min(10, score));
+    
+    analysis += ` Current AI score: ${score.toFixed(1)}/10. Confidence: ${confidence}%.`;
+    
+    return {
+      analysis,
+      recommendation,
+      confidence: Math.max(0, Math.min(100, confidence)),
+      score: Math.max(0, Math.min(10, score)),
+      potential,
+      riskLevel,
+      qualityScore: Math.max(0, Math.min(10, qualityScore)),
+      priceTarget30d
     };
-    return descriptions[symbol] || `Innovative blockchain project - ${symbol}`;
   };
 
-  const getStockDescription = (symbol: string): string => {
-    const descriptions: { [key: string]: string } = {
-      'PLTR': 'Big data analytics platform for government and enterprise',
-      'RBLX': 'Global platform bringing millions together through play',
-      'HOOD': 'Commission-free financial services and trading platform',
-      'COIN': 'Leading cryptocurrency exchange platform',
-      'U': 'Cloud communications platform as a service'
-    };
-    return descriptions[symbol] || `Growth-oriented technology company - ${symbol}`;
-  };
-
-  const generateGemAnalysis = (symbol: string, changePercent: number, category: string): string => {
-    const isPositive = changePercent > 0;
-    const magnitude = Math.abs(changePercent);
-    
-    const templates = [
-      `Real-time analysis shows ${isPositive ? 'bullish' : 'bearish'} momentum with ${magnitude.toFixed(1)}% movement. ${category} sector fundamentals remain strong.`,
-      `Current price action indicates ${isPositive ? 'accumulation' : 'consolidation'} phase. Technical indicators suggest potential for recovery in ${category} space.`,
-      `Market data reveals ${isPositive ? 'positive' : 'mixed'} sentiment. Strong development activity and growing adoption in ${category} ecosystem.`
-    ];
-    
-    return templates[Math.floor(Math.random() * templates.length)];
-  };
-
-  const loadGems = async (forceRefresh = false) => {
+  // Load cached data
+  const loadCachedData = async () => {
     try {
-      setLoadingStatus('Fetching REAL CoinGecko data...');
-      setIsScanning(true);
+      const cachedGems = await AsyncStorage.getItem('realGems');
+      const cachedScanTimes = await AsyncStorage.getItem('scanTimes');
       
-      // Get ONLY TOP VERIFIED CoinGecko IDs that we know work correctly
-      const validatedCoinGeckoIds = [
-        'bitcoin', 'ethereum', 'solana', 'cardano', 'polkadot', 
-        'avalanche-2', 'chainlink', 'uniswap', 'injective-protocol',
-        'fantom', 'thorchain', 'kava', 'ankr'
-      ];
-
-      console.log('🔍 Fetching ONLY TOP CoinGecko cryptos with REAL price data:', validatedCoinGeckoIds);
-      console.log('⚠️ Using SMALLER list of verified cryptos to ensure REAL prices');
-
-      // Get REAL market data EXCLUSIVELY from CoinGecko API (NEVER cached or fallback)
-      const realMarketData = await integratedDataService.getRealMarketDataOnly(validatedCoinGeckoIds);
-
-      console.log(`📊 Raw market data received: ${realMarketData.length} items`);
-      realMarketData.forEach((data, index) => {
-        console.log(`📋 [${index + 1}] ${data.symbol}: $${data.price} (${data.type}) - MC: $${data.marketCap} - Vol: $${data.volume24h} - Change: ${data.change}% - Source: ${data.source || 'unknown'}`);
-      });
-
-      if (realMarketData.length === 0) {
-        console.warn('⚠️ NO DATA received from API - this might indicate an API issue');
-        Alert.alert(
-          '⚠️ No Data Received',
-          'Unable to fetch cryptocurrency data from CoinGecko. Please check your internet connection and try again.',
-          [{ text: 'OK', style: 'default' }]
-        );
-        return;
-      }
-
-      // Filter STRICTLY - ONLY CoinGecko validated data with REAL prices and from API source
-      const validMarketData = realMarketData.filter(data => {
-        const isValidCoinGeckoId = validatedCoinGeckoIds.includes(data.symbol.toLowerCase());
-        const hasValidPrice = data.price > 0;
-        const hasValidType = data.type === 'crypto';
-        const priceIsRealistic = data.price < 1000000; // Reject unrealistic prices
-        const isFromAPI = data.source === 'api'; // ONLY accept API data, never cache or fallback
-        
-        const isValid = isValidCoinGeckoId && hasValidPrice && hasValidType && priceIsRealistic && isFromAPI;
-        
-        if (!isValid) {
-          console.log(`🚫 REJECTED: ${data.symbol} - CoinGecko ID: ${isValidCoinGeckoId}, Valid Price: ${hasValidPrice} ($${data.price}), Valid Type: ${hasValidType}, Realistic Price: ${priceIsRealistic}, API Source: ${isFromAPI} (source: ${data.source})`);
-        } else {
-          console.log(`✅ ACCEPTED REAL DATA: ${data.symbol} - $${data.price} (${data.type}) - Source: ${data.source}`);
-        }
-        
-        return isValid;
-      });
-
-      console.log(`✅ VALIDATED: ${validMarketData.length}/${realMarketData.length} assets passed strict CoinGecko validation`);
-
-      if (validMarketData.length === 0) {
-        console.error('❌ NO VALID REAL DATA after filtering - all cryptocurrency data was rejected');
-        console.log('🔍 Debugging: Check the filter criteria and API responses above');
-        Alert.alert(
-          '❌ Data Validation Failed',
-          `Received ${realMarketData.length} items but all were rejected by validation filters. This might indicate incorrect data from the API or no real API data available.`,
-          [{ text: 'OK', style: 'default' }]
-        );
-        return;
-      }
-
-      // Convert ONLY validated CoinGecko REAL data to GemProject format
-      console.log('🔄 Converting validated REAL market data to gem format...');
-      const gemsData: GemProject[] = validMarketData.map((data, index) => {
-        const gem = {
-          id: `coingecko-real-${data.symbol}-${Date.now()}-${index}`, // Mark as CoinGecko REAL sourced
-          symbol: data.symbol.toUpperCase(),
-          name: data.name,
-          price: data.price, // REAL price from API
-          marketCap: data.marketCap || 0, // REAL market cap from API
-          volume24h: data.volume24h || 0, // REAL volume from API
-          change24h: data.change || 0, // REAL change from API
-          description: getDescriptionForSymbol(data.symbol.toUpperCase()),
-          aiScore: Number((7.5 + Math.random() * 2.5).toFixed(1)),
-          risk: (data.marketCap || 0) > 1000000000 ? 'Low' as const : (data.marketCap || 0) > 200000000 ? 'Medium' as const : 'High' as const,
-          category: getCategoryForSymbol(data.symbol.toUpperCase(), 'crypto'), // Force crypto type
-          launchDate: generateLaunchDate(data.symbol.toUpperCase()),
-          type: 'crypto' as const, // Explicitly set as crypto
-          social: {
-            twitter: true,
-            telegram: true,
-            discord: true
-          },
-          fundamentals: {
-            team: Math.floor(70 + Math.random() * 30),
-            tech: Math.floor(65 + Math.random() * 35),
-            tokenomics: Math.floor(60 + Math.random() * 40),
-            community: Math.floor(55 + Math.random() * 45),
-          },
-          aiAnalysis: generateGemAnalysis(data.symbol.toUpperCase(), data.change || 0, getCategoryForSymbol(data.symbol.toUpperCase(), 'crypto')),
-          potential: (data.change || 0) > 10 ? 'extreme' : (data.change || 0) > 5 ? 'high' : 'medium',
-          timeframe: generateTimeframe('crypto'),
-          lastUpdated: Date.now(),
-        };
-        
-        console.log(`💎 Created REAL gem: ${gem.symbol} - $${gem.price} (MC: $${gem.marketCap}) - REAL DATA`);
-        return gem;
-      });
-
-      setGems(gemsData);
-
-      // Guardar SOLO datos REALES de CoinGecko con precios reales
-      if (gemsData.length > 0) {
-        await integratedDataService.saveGems(gemsData);
-        console.log(`💾 Saved ${gemsData.length} REAL CoinGecko gems with REAL prices to Firebase`);
-        
-        // Notify alert service about new gems
-        try {
-          await autoAlertService.syncWithGemFinder();
-          console.log('🔔 Alert service synced with REAL gems');
-        } catch (syncError) {
-          console.warn('⚠️ Alert service sync failed:', syncError);
+      if (cachedGems) {
+        const parsedGems = JSON.parse(cachedGems);
+        if (parsedGems.gems && Array.isArray(parsedGems.gems)) {
+          setGems(parsedGems.gems);
+          console.log(`📋 Loaded ${parsedGems.gems.length} cached gems`);
         }
       }
-      
+
+      if (cachedScanTimes) {
+        const parsedScanTimes = JSON.parse(cachedScanTimes);
+        setLastScanTime(parsedScanTimes);
+        console.log('⏰ Loaded scan times:', parsedScanTimes);
+      }
     } catch (error) {
-      console.error('❌ Error loading REAL gems:', error);
-      Alert.alert('Error', 'Failed to fetch REAL data. Please try again.');
+      console.warn('⚠️ Error loading cached data:', error);
+    }
+  };
+
+  // Load gems from Firebase
+  const loadGemsFromFirebase = async () => {
+    try {
+      console.log('🔥 Loading gems from Firebase...');
+      const firebaseGems = await firebaseService.getGems(50);
+      
+      if (firebaseGems.length > 0) {
+        setGems(firebaseGems as unknown as RealGemSearchResult[]);
+        console.log(`🔥 Loaded ${firebaseGems.length} gems from Firebase`);
+      }
+    } catch (error) {
+      console.error('❌ Error loading gems from Firebase:', error);
+    }
+  };
+
+  // Save gems to Firebase
+  const saveGemsToFirebase = async (gemsToSave: RealGemSearchResult[]) => {
+    try {
+      console.log('🔥 Saving gems to Firebase...');
+      await firebaseService.saveGems(gemsToSave);
+      console.log(`✅ Saved ${gemsToSave.length} gems to Firebase`);
+    } catch (error) {
+      console.error('❌ Error saving gems to Firebase:', error);
+    }
+  };
+
+  // Cache gems to AsyncStorage
+  const cacheGems = async (gemsData: RealGemSearchResult[]) => {
+    try {
+      const cacheData = {
+        gems: gemsData,
+        timestamp: Date.now()
+      };
+      await AsyncStorage.setItem('realGems', JSON.stringify(cacheData));
+      console.log('💾 Cached gems successfully');
+    } catch (error) {
+      console.error('❌ Error caching gems:', error);
+    }
+  };
+
+  // Cache scan times
+  const cacheScanTimes = async (scanTimes: { [key: string]: number }) => {
+    try {
+      await AsyncStorage.setItem('scanTimes', JSON.stringify(scanTimes));
+      console.log('💾 Cached scan times successfully');
+    } catch (error) {
+      console.error('❌ Error caching scan times:', error);
+    }
+  };
+
+  // Check if scan is allowed (5 minute cooldown)
+  const canScan = (type: 'crypto' | 'stocks'): boolean => {
+    const lastScan = lastScanTime[type] || 0;
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    return lastScan < fiveMinutesAgo;
+  };
+
+  // Get remaining cooldown time
+  const getRemainingCooldown = (type: 'crypto' | 'stocks'): number => {
+    const lastScan = lastScanTime[type] || 0;
+    const fiveMinutesInMs = 5 * 60 * 1000;
+    const elapsed = Date.now() - lastScan;
+    return Math.max(0, fiveMinutesInMs - elapsed);
+  };
+
+  // Convert RealGemSearchResult to GemDetailProps format
+  const convertRealGemToDetailFormat = (gem: RealGemSearchResult): GemDetailProps['gem'] => {
+    return {
+      id: gem.symbol + '-' + gem.type,
+      symbol: gem.symbol,
+      name: gem.name,
+      price: gem.price,
+      marketCap: gem.marketCap,
+      volume24h: gem.volume,
+      change24h: gem.change24h,
+      description: gem.aiAnalysis || `${gem.type === 'crypto' ? 'Cryptocurrency' : 'Stock'} with AI analysis`,
+      aiScore: gem.aiScore,
+      risk: gem.riskLevel,
+      category: gem.type === 'crypto' ? 'crypto' : 'stocks',
+      launchDate: new Date().toISOString().split('T')[0],
+      type: gem.type,
+      social: {
+        twitter: true,
+        telegram: gem.type === 'crypto',
+        discord: gem.type === 'crypto',
+      },
+      fundamentals: {
+        team: gem.qualityScore * 0.8,
+        tech: gem.qualityScore * 0.9,
+        tokenomics: gem.type === 'crypto' ? gem.qualityScore * 0.7 : gem.qualityScore * 0.8,
+        community: gem.qualityScore * 0.6,
+      },
+      aiAnalysis: gem.aiAnalysis || 'AI analysis with real market data',
+      potential: gem.potential,
+      timeframe: '30d',
+      lastUpdated: Date.now(),
+    };
+  };
+
+  // Function to scan for new gems using real APIs with AI analysis (less restrictive)
+  const handleScanNewGems = async (type: 'crypto' | 'stocks') => {
+    if (isScanning) return;
+
+    // Check cooldown
+    if (!canScan(type)) {
+      const remainingMs = getRemainingCooldown(type);
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      Alert.alert(
+        'Scan Cooldown',
+        `Please wait ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''} before scanning ${type} again.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    setIsScanning(true);
+    setScanningType(type);
+    setLoadingStatus(`Scanning ${type} with real APIs...`);
+
+    try {
+      console.log(`🔍 Starting ${type} scan with real data and AI analysis (limit: 4 gems)`);
+      
+      let results: RealGemSearchResult[] = [];
+      
+      if (type === 'crypto') {
+        setLoadingStatus('Fetching crypto data from CoinGecko...');
+        results = await realGemSearchService.searchCryptoGems({
+          maxResults: 4, // Limited to 4 for API rate limits
+          minAIScore: 0.1, // Reduced from 0.3 to 0.1 (less restrictive)
+          sortBy: 'marketCap', // Changed from 'aiScore' to 'marketCap' for more variety
+          onlyWithPositiveAI: false, // Changed from true to false (less restrictive)
+          minMarketCap: 1000000, // $1M minimum market cap (less restrictive)
+          maxMarketCap: 10000000000, // $10B maximum market cap
+          minVolume: 100000 // $100K minimum volume (less restrictive)
+        });
+      } else {
+        setLoadingStatus('Fetching stock data from Alpha Vantage...');
+        results = await realGemSearchService.searchStockGems({
+          maxResults: 4, // Limited to 4 for API rate limits
+          minAIScore: 0.1, // Reduced from 0.3 to 0.1 (less restrictive)
+          sortBy: 'volume', // Changed from 'aiScore' to 'volume' for more variety
+          onlyWithPositiveAI: false, // Changed from true to false (less restrictive)
+          minMarketCap: 50000000, // $50M minimum market cap (less restrictive)
+          maxMarketCap: 50000000000, // $50B maximum market cap
+          minVolume: 1000000 // $1M minimum volume (less restrictive)
+        });
+      }
+
+      // Filter out any results with critical missing data
+      const validResults = results.filter(result => {
+        return result.symbol && 
+               result.name && 
+               (result.price !== undefined && result.price !== null) &&
+               (result.marketCap !== undefined && result.marketCap !== null) &&
+               result.type;
+      });
+
+      console.log(`📊 Found ${results.length} total results, ${validResults.length} valid after filtering`);
+
+      if (validResults.length === 0) {
+        Alert.alert(
+          'No Gems Found',
+          'No gems meeting the basic criteria were found. This could be due to API rate limits or market conditions. Try again later.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      setLoadingStatus('Analyzing results with AI...');
+      
+      // Generate AI analysis for gems that don't have it
+      const enrichedResults = await Promise.all(
+        validResults.map(async (gem) => {
+          try {
+            if (!gem.aiAnalysis || !gem.aiRecommendation) {
+              // Generate basic AI analysis based on available data
+              const aiAnalysis = generateBasicAIAnalysis(gem);
+              return {
+                ...gem,
+                aiAnalysis: aiAnalysis.analysis,
+                aiRecommendation: aiAnalysis.recommendation as 'buy' | 'hold' | 'sell',
+                aiConfidence: aiAnalysis.confidence,
+                aiScore: aiAnalysis.score,
+                potential: aiAnalysis.potential,
+                riskLevel: aiAnalysis.riskLevel,
+                qualityScore: aiAnalysis.qualityScore,
+                priceTarget30d: aiAnalysis.priceTarget30d
+              };
+            }
+            return gem;
+          } catch (error) {
+            console.warn(`Error enriching gem ${gem.symbol}:`, error);
+            return gem; // Return original if enrichment fails
+          }
+        })
+      );
+      
+      // Update last scan time
+      const newScanTimes = {
+        ...lastScanTime,
+        [type]: Date.now()
+      };
+      setLastScanTime(newScanTimes);
+      await cacheScanTimes(newScanTimes);
+
+      // Save to Firebase
+      await saveGemsToFirebase(enrichedResults);
+      
+      // Cache the results
+      const updatedGems = [...enrichedResults, ...gems];
+      await cacheGems(updatedGems);
+      
+      // Update state
+      setGems(updatedGems);
+      console.log(`✅ Successfully found ${enrichedResults.length} ${type} gems with real data`);
+      
+      Alert.alert(
+        'Scan Complete',
+        `Found ${enrichedResults.length} ${type} gems with AI analysis! Saved to Firebase.`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error(`❌ Error scanning ${type} gems:`, error);
+      Alert.alert(
+        'Scan Error',
+        `Failed to scan ${type} gems. Please check your internet connection and try again.`,
+        [{ text: 'OK' }]
+      );
     } finally {
       setIsScanning(false);
-      setRefreshing(false);
+      setScanningType(null);
       setLoadingStatus('');
     }
   };
 
-  // Manual cache cleaning (only when explicitly needed)
-  const cleanCacheManually = async () => {
-    try {
-      console.log('🧹 Manual cache cleaning...');
-      await integratedDataService.cleanIncorrectData();
-      console.log('✅ Cache cleaned manually');
-      Alert.alert('Cache Cleaned', 'Incorrect cached data has been removed');
-    } catch (error) {
-      console.warn('⚠️ Error cleaning cached data:', error);
-      Alert.alert('Error', 'Failed to clean cache');
-    }
-  };
-
-  const onRefresh = async () => {
-    if (refreshing || isScanning) return; // Prevent multiple simultaneous refreshes
+  // Render gem item with real data - Fixed undefined values
+  const renderGem = ({ item }: { item: RealGemSearchResult }) => {
+    // Safely handle undefined values
+    const price = item.price || 0;
+    const change24h = item.change24h || 0;
+    const aiScore = item.aiScore || 0;
+    const marketCap = item.marketCap || 0;
+    const volume = item.volume || 0;
+    const qualityScore = item.qualityScore || 0;
+    const priceTarget30d = item.priceTarget30d || price;
+    const aiConfidence = item.aiConfidence || 0;
     
-    setRefreshing(true);
-    try {
-      await loadGems(true); // Force refresh - get fresh data
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const getFilteredGems = () => {
-    if (selectedFilter === 'all') return gems;
-    if (selectedFilter === 'crypto') return gems.filter(gem => gem.type === 'crypto');
-    if (selectedFilter === 'stocks') return gems.filter(gem => gem.type === 'stock');
-    
-    // Market cap filters
-    if (selectedFilter === 'ultra-low') return gems.filter(gem => getMarketCapCategory(gem.marketCap) === 'ultra-low');
-    if (selectedFilter === 'low') return gems.filter(gem => getMarketCapCategory(gem.marketCap) === 'low');
-    if (selectedFilter === 'medium') return gems.filter(gem => getMarketCapCategory(gem.marketCap) === 'medium');
-    if (selectedFilter === 'big') return gems.filter(gem => getMarketCapCategory(gem.marketCap) === 'big');
-    
-    // Enhanced category filtering that handles all categories properly
-    const categoryMap: { [key: string]: string[] } = {
-      'defi': ['defi', 'decentralized finance'],
-      'gaming': ['gaming', 'metaverse', 'nft'],
-      'ai': ['ai', 'artificial intelligence', 'machine learning'],
-      'tech': ['tech', 'technology', 'software'],
-      'fintech': ['fintech', 'financial technology', 'payments'],
-      'growth': ['growth', 'high growth'],
-      'infrastructure': ['infrastructure', 'layer 1', 'layer 2', 'blockchain'],
-      'privacy': ['privacy', 'anonymous'],
-      'biotech': ['biotech', 'biotechnology', 'pharmaceutical'],
-      'aerospace': ['aerospace', 'space'],
-      'ev': ['ev', 'electric vehicle', 'automotive'],
-      'proptech': ['proptech', 'real estate']
-    };
-    
-    const matchingCategories = categoryMap[selectedFilter] || [selectedFilter];
-    return gems.filter(gem => 
-      matchingCategories.some(cat => 
-        gem.category.toLowerCase().includes(cat.toLowerCase())
-      )
-    );
-  };
-
-  const formatMarketCap = (cap: number) => {
-    if (cap >= 1000000000) return `$${(cap / 1000000000).toFixed(1)}B`;
-    if (cap >= 1000000) return `$${(cap / 1000000).toFixed(1)}M`;
-    if (cap >= 1000) return `$${(cap / 1000).toFixed(0)}K`;
-    return `$${cap}`;
-  };
-
-  const getMarketCapCategory = (cap: number): 'ultra-low' | 'low' | 'medium' | 'big' => {
-    const capInMillions = cap / 1000000;
-    if (capInMillions <= 50) return 'ultra-low';
-    if (capInMillions <= 200) return 'low';
-    if (capInMillions <= 500) return 'medium';
-    return 'big';
-  };
-
-  const getMarketCapColor = (cap: number) => {
-    const category = getMarketCapCategory(cap);
-    switch (category) {
-      case 'ultra-low': return '#FF6B6B'; // Red for ultra high risk/reward
-      case 'low': return '#FFB000'; // Orange for high risk/reward
-      case 'medium': return '#4ECDC4'; // Teal for moderate risk
-      case 'big': return '#45B7D1'; // Blue for stable
-      default: return theme.textMuted;
-    }
-  };
-
-  const getMarketCapLabel = (cap: number): string => {
-    const category = getMarketCapCategory(cap);
-    switch (category) {
-      case 'ultra-low': return 'Ultra Low Cap';
-      case 'low': return 'Low Cap';
-      case 'medium': return 'Medium Cap';
-      case 'big': return 'Big Cap';
-      default: return 'Unknown';
-    }
-  };
-
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return theme.primary;
-    if (score >= 60) return theme.warning;
-    return theme.secondary;
-  };
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case 'Low': return theme.primary;
-      case 'Medium': return theme.warning;
-      case 'High': return theme.secondary;
-      default: return theme.textMuted;
-    }
-  };
-
-  const getPotentialColor = (potential: string) => {
-    switch (potential) {
-      case 'extreme': return theme.error;
-      case 'high': return theme.warning;
-      case 'medium': return theme.primary;
-      default: return theme.textSecondary;
-    }
-  };
-
-  const getSymbolIcon = (symbol: string, type: string) => {
-    // CoinGecko ID to icon mapping for crypto
-    const cryptoIcons: { [key: string]: string } = {
-      // Popular cryptos with CoinGecko IDs
-      'bitcoin': '₿', 'ethereum': 'Ξ', 'cardano': '₳', 'polkadot': '●', 'solana': '◎', 'polygon': '⬟',
-      'chainlink': '🔗', 'uniswap': '🦄', 'avalanche': '�', 'cosmos': '⚛️',
-      // Alt coins with CoinGecko IDs
-      'injective-protocol': '🥷', 'oasis-network': '🌹', 'fantom': '👻', 'ocean-protocol': '🌊', 'thorchain': '🔱',
-      'kava': '☕', 'celer-network': '⚡', 'ren': '🔄', 'band-protocol': '📡', 'ankr': '⚓',
-      'render-token': '🎨'
-    };
-    const stockIcons: { [key: string]: string } = {
-      'AAPL': '🍎', 'GOOGL': '🔍', 'MSFT': '🪟', 'TSLA': '🚗', 'NVDA': '🎮',
-      'META': '📘', 'AMZN': '📦', 'PLTR': '🕵️', 'CRSP': '🧬', 'ROKU': '📺',
-      'SQ': '💳', 'ARKK': '🚀', 'RBLX': '🎮', 'SOFI': '🏦', 'COIN': '🪙',
-      'OPEN': '🏠', 'SPCE': '🛰️', 'LCID': '🔋', 'HOOD': '🏹',
-    };
-    
-    if (type === 'crypto') return cryptoIcons[symbol.toLowerCase()] || '🪙';
-    return stockIcons[symbol.toUpperCase()] || '📈';
-  };
-
-  const renderGem = ({ item }: { item: GemProject }) => {
-    const isPositive = item.change24h > 0;
-    const targetPrice = item.price * (item.potential === 'extreme' ? 5 : item.potential === 'high' ? 3 : 2);
-    const potentialReturn = ((targetPrice - item.price) / item.price) * 100;
+    const aiScoreColor = aiScore > 0.7 ? '#4CAF50' : aiScore > 0.5 ? '#FF9800' : '#F44336';
+    const potentialColor = item.potential === 'very_high' ? '#4CAF50' :
+                          item.potential === 'high' ? '#8BC34A' :
+                          item.potential === 'medium' ? '#FF9800' : '#F44336';
     
     return (
       <TouchableOpacity
+        style={styles.gemCard}
         onPress={() => setSelectedGem(item)}
-        activeOpacity={0.8}
       >
-        <Animated.View style={[styles.gemCard, { opacity: fadeAnim }]}>
-          <LinearGradient
-            colors={[theme.surface, theme.surfaceVariant]}
-            style={styles.cardGradient}
-          >
-            {/* Compact Header */}
-            <View style={styles.gemHeader}>
-              <View style={styles.symbolContainer}>
-                <View style={styles.symbolRow}>
-                  <Text style={styles.symbolIcon}>{getSymbolIcon(item.symbol, item.type)}</Text>
-                  <View style={styles.symbolInfo}>
-                    <View style={styles.symbolTitleRow}>
-                      <Text style={styles.symbol}>{item.symbol}</Text>
-                      <View style={[styles.capCategoryBadge, { backgroundColor: getMarketCapColor(item.marketCap) }]}>
-                        <Text style={styles.capCategoryText}>
-                          {getMarketCapCategory(item.marketCap).toUpperCase()}
-                        </Text>
-                      </View>
+        <LinearGradient
+          colors={['#1A1A2E', '#16213E']}
+          style={styles.cardGradient}
+        >
+          <View style={styles.gemHeader}>
+            <View style={styles.symbolContainer}>
+              <View style={styles.symbolRow}>
+                <Text style={styles.symbolIcon}>
+                  {item.type === 'crypto' ? '₿' : '📈'}
+                </Text>
+                <View style={styles.symbolInfo}>
+                  <View style={styles.symbolTitleRow}>
+                    <Text style={styles.symbol}>{item.symbol || 'N/A'}</Text>
+                    <View style={[styles.capCategoryBadge, { backgroundColor: item.type === 'crypto' ? '#FF6B35' : '#4ECDC4' }]}>
+                      <Text style={styles.capCategoryText}>{(item.type || 'unknown').toUpperCase()}</Text>
                     </View>
-                    <Text style={styles.typeText}>{item.type.toUpperCase()}</Text>
                   </View>
-                </View>
-                <View style={styles.categoryContainer}>
-                  <Text style={styles.gemName}>{item.name}</Text>
-                  <Text style={styles.category}>{item.category}</Text>
-                </View>
-              </View>
-              <View style={styles.scoreContainer}>
-                <View style={[styles.aiScoreBadge, { backgroundColor: getScoreColor(item.aiScore) }]}>
-                  <Text style={styles.aiScoreText}>{(item.aiScore || 8.5).toFixed(1)}</Text>
+                  <Text style={styles.gemName}>{item.name || 'Unknown'}</Text>
                 </View>
               </View>
             </View>
-
-            {/* Compact Info */}
-            <View style={styles.compactInfo}>
-              <View style={styles.priceSection}>
-                <Text style={styles.price}>
-                  ${item.type === 'crypto' && item.price < 1 
-                    ? item.price.toFixed(6) 
-                    : item.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-                <Text style={[styles.change, { color: isPositive ? theme.primary : theme.secondary }]}>
-                  {isPositive ? '+' : ''}{item.change24h.toFixed(1)}%
-                </Text>
-              </View>
-              
-              <View style={styles.targetsSection}>
-                <Text style={styles.targetLabel}>Target:</Text>
-                <Text style={[styles.targetPrice, { color: theme.primary }]}>
-                  ${targetPrice.toFixed(item.type === 'crypto' && targetPrice < 1 ? 6 : 2)}
-                </Text>
-                <Text style={[styles.potentialReturn, { color: theme.primary }]}>
-                  +{potentialReturn.toFixed(0)}%
-                </Text>
+            <View style={styles.scoreContainer}>
+              <View style={[styles.aiScoreBadge, { backgroundColor: aiScoreColor }]}>
+                <Text style={styles.aiScoreText}>{(aiScore * 100).toFixed(0)}</Text>
               </View>
             </View>
-
-            {/* Bottom Info */}
-            <View style={styles.bottomInfo}>
-              <View style={styles.timeframeContainer}>
-                <Text style={styles.timeframeText}>{item.timeframe || '3-6M'}</Text>
-                <View style={[styles.riskBadge, { backgroundColor: getRiskColor(item.risk) }]}>
-                  <Text style={styles.riskText}>{item.risk}</Text>
-                </View>
-              </View>
+          </View>
+          <View style={styles.priceSection}>
+            <View>
+              <Text style={styles.price}>
+                ${price > 0 ? price.toLocaleString() : '0.00'}
+              </Text>
+              <Text style={[styles.change, { color: change24h >= 0 ? '#4CAF50' : '#F44336' }]}>
+                {change24h >= 0 ? '+' : ''}{change24h.toFixed(2)}%
+              </Text>
             </View>
-
-            {/* Quick Stats Row */}
-            <View style={styles.quickStats}>
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>MC</Text>
-                <Text style={[styles.statValue, { color: getMarketCapColor(item.marketCap) }]}>
-                  {formatMarketCap(item.marketCap)}
-                </Text>
-                <Text style={[styles.statSubLabel, { color: getMarketCapColor(item.marketCap) }]}>
-                  {getMarketCapLabel(item.marketCap)}
-                </Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Vol</Text>
-                <Text style={styles.statValue}>{formatMarketCap(item.volume24h)}</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Potential</Text>
-                <Text style={[styles.statValue, { color: getPotentialColor(item.potential) }]}>
-                  {item.potential}
-                </Text>
-              </View>
+            <View style={styles.targetsSection}>
+              <Text style={styles.targetLabel}>30d Target</Text>
+              <Text style={[styles.targetPrice, { color: potentialColor }]}>
+                ${priceTarget30d > 0 ? priceTarget30d.toLocaleString() : '0.00'}
+              </Text>
+              <Text style={[styles.potentialReturn, { color: potentialColor }]}>
+                {(item.potential || 'unknown').toUpperCase()}
+              </Text>
             </View>
-          </LinearGradient>
-        </Animated.View>
+          </View>
+          <View style={styles.bottomInfo}>
+            <View style={styles.timeframeContainer}>
+              <Text style={styles.timeframeText}>
+                AI: {(item.aiRecommendation || 'HOLD').toUpperCase()}
+              </Text>
+              <Text style={styles.timeframeText}>
+                Conf: {(aiConfidence * 100).toFixed(0)}%
+              </Text>
+            </View>
+            <View style={[styles.riskBadge, { 
+              backgroundColor: item.riskLevel === 'low' ? '#4CAF50' :
+                             item.riskLevel === 'medium' ? '#FF9800' : '#F44336'
+            }]}>
+              <Text style={styles.riskText}>{(item.riskLevel || 'unknown').toUpperCase()}</Text>
+            </View>
+          </View>
+          <View style={styles.quickStats}>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Market Cap</Text>
+              <Text style={styles.statValue}>
+                ${marketCap > 1000000000 ?
+                  (marketCap / 1000000000).toFixed(1) + 'B' :
+                  marketCap > 1000000 ?
+                  (marketCap / 1000000).toFixed(0) + 'M' :
+                  marketCap > 0 ? marketCap.toFixed(0) : '0'}
+              </Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Volume</Text>
+              <Text style={styles.statValue}>
+                ${volume > 1000000000 ?
+                  (volume / 1000000000).toFixed(1) + 'B' :
+                  volume > 1000000 ?
+                  (volume / 1000000).toFixed(0) + 'M' :
+                  volume > 0 ? volume.toFixed(0) : '0'}
+              </Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Quality</Text>
+              <Text style={styles.statValue}>
+                {(qualityScore * 100).toFixed(0)}%
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
       </TouchableOpacity>
     );
   };
@@ -668,212 +634,42 @@ const GemFinderScreen: React.FC = () => {
     </TouchableOpacity>
   );
 
-  // Function to scan for new gems (crypto or stocks)
-  const handleScanNewGems = async (type: 'crypto' | 'stocks') => {
-    if (isScanning) return;
-    
-    setIsScanning(true);
-    setScanningType(type); // Set which type is being scanned
+  // Filter gems based on selected filter
+  const filteredGems = gems.filter(gem => {
+    if (selectedFilter === 'all') return true;
+    if (selectedFilter === 'crypto') return gem.type === 'crypto';
+    if (selectedFilter === 'stocks') return gem.type === 'stock';
+    if (selectedFilter === 'high' ) return gem.potential === 'high' || gem.potential === 'very_high';
+    if (selectedFilter === 'medium') return gem.potential === 'medium';
+    if (selectedFilter === 'low') return gem.riskLevel === 'low';
+    return true;
+  });
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
     try {
-      console.log(`🔍 Scanning for fresh ${type} gems from API...`);
-      
-      if (type === 'crypto') {
-        // Para crypto, SOLO usar datos de CoinGecko API - reemplazar todo
-        console.log('🔄 Replacing gems with FRESH CoinGecko data only...');
-        await loadGems(true); // Esto busca datos frescos y los guarda
-      } else {
-        // Para stocks, generar datos SOLO de stocks (sin mezclar crypto)
-        const newStockGems = await generateNewGems(type);
-        
-        // Filtrar SOLO las cryptos existentes de CoinGecko y agregar los stocks nuevos
-        const existingCryptos = gems.filter(gem => 
-          gem.type === 'crypto' && gem.id.startsWith('coingecko-')
-        );
-        
-        // Check for stock duplicates
-        const existingStockSymbols = new Set(
-          gems.filter(gem => gem.type === 'stock').map(gem => gem.symbol)
-        );
-        const uniqueStockGems = newStockGems.filter(gem => 
-          !existingStockSymbols.has(gem.symbol)
-        );
-        
-        if (uniqueStockGems.length === 0) {
-          Alert.alert(
-            '💎 All Stock Gems Already Discovered!',
-            `All stock gems are already in your collection. Try scanning crypto for fresh CoinGecko data!`,
-            [{ text: 'OK', style: 'default' }]
-          );
-          return;
-        }
-        
-        // Combinar SOLO cryptos de CoinGecko + nuevos stocks
-        const updatedGems = [...existingCryptos, ...gems.filter(gem => gem.type === 'stock'), ...uniqueStockGems];
-        setGems(updatedGems);
-        
-        // Save ONLY the complete collection (CoinGecko cryptos + stocks)
-        try {
-          await integratedDataService.saveGems(updatedGems);
-          console.log(`💾 Saved ${uniqueStockGems.length} new stock gems + ${existingCryptos.length} CoinGecko cryptos to cache`);
-          console.log('⚠️ NO mixed crypto data - only CoinGecko + real stocks');
-          
-          // Notify alert service about new gems
-          await autoAlertService.syncWithGemFinder();
-          console.log('🔔 Alert service notified about new stock gems');
-        } catch (saveError) {
-          console.warn('⚠️ Failed to save stock gems to cache:', saveError);
-        }
-        
-        Alert.alert(
-          '🎯 New Stock Gems Discovered!',
-          `Found ${uniqueStockGems.length} promising stock opportunities with high potential!`,
-          [{ text: 'Great!', style: 'default' }]
-        );
-      }
-      
+      await loadGemsFromFirebase();
     } catch (error) {
-      console.error(`❌ Error scanning ${type} gems:`, error);
-      Alert.alert('Error', `Failed to scan ${type} gems. Please try again.`);
+      console.error('Error refreshing:', error);
     } finally {
-      setIsScanning(false);
-      setScanningType(null); // Clear scanning type
+      setRefreshing(false);
     }
-  };
+  }, []);
 
-  // Generate new gems with REAL stock data
-  const generateNewGems = async (type: 'crypto' | 'stocks'): Promise<GemProject[]> => {
+  // Get scan button text with cooldown
+  const getScanButtonText = (type: 'crypto' | 'stocks') => {
+    if (isScanning && scanningType === type) {
+      return 'Scanning...';
+    }
     
-    // IMPORTANT: This function should ONLY be called for stocks
-    // Crypto gems should ONLY come from CoinGecko via loadGems()
-    if (type === 'crypto') {
-      console.warn('⚠️ generateNewGems should NOT be used for crypto - use loadGems() for CoinGecko data only');
-      return [];
+    if (!canScan(type)) {
+      const remainingMs = getRemainingCooldown(type);
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      return `Wait ${remainingMinutes}m`;
     }
-
-    // Stock symbols to get REAL data for
-    const stockSymbols = [
-      'PLTR', 'CRSP', 'ROKU', 'SQ', 'RBLX', 'SOFI', 'OPEN', 'SPCE', 'LCID', 'HOOD', 'NET', 'TWLO'
-    ];
-
-    try {
-      console.log('📊 Fetching REAL stock data from API...');
-      
-      // Get REAL stock market data from API
-      const realStockData = await integratedDataService.getRealMarketDataOnly(stockSymbols);
-
-      console.log(`📊 Real stock data received: ${realStockData.length} items`);
-      realStockData.forEach((data, index) => {
-        console.log(`📋 [${index + 1}] ${data.symbol}: $${data.price} (${data.type}) - Change: ${data.change}% - Source: ${data.source || 'unknown'}`);
-      });
-
-      // Filter ONLY stocks with REAL API data
-      const validStockData = realStockData.filter(data => {
-        const isStock = data.type === 'stock';
-        const hasValidPrice = data.price > 0;
-        const isFromAPI = data.source === 'api'; // ONLY accept API data, never cache or fallback
-        
-        const isValid = isStock && hasValidPrice && isFromAPI;
-        
-        if (!isValid) {
-          console.log(`🚫 REJECTED STOCK: ${data.symbol} - Stock: ${isStock}, Valid Price: ${hasValidPrice} ($${data.price}), API Source: ${isFromAPI} (source: ${data.source})`);
-        } else {
-          console.log(`✅ ACCEPTED REAL STOCK: ${data.symbol} - $${data.price} - Source: ${data.source}`);
-        }
-        
-        return isValid;
-      });
-
-      if (validStockData.length === 0) {
-        console.warn('⚠️ No REAL stock data available from API - falling back to stock info without real prices');
-        Alert.alert(
-          '⚠️ No Real Stock Data',
-          'Unable to fetch real stock prices from API. Please check your internet connection and API configuration.',
-          [{ text: 'OK', style: 'default' }]
-        );
-        return [];
-      }
-
-      // Convert REAL stock data to GemProject format
-      const stockGems: GemProject[] = validStockData.map((data, index) => {
-        const stockInfo = {
-          'PLTR': { category: 'ai', potential: 'high', capCategory: 'medium' },
-          'CRSP': { category: 'biotech', potential: 'extreme', capCategory: 'low' },
-          'ROKU': { category: 'tech', potential: 'medium', capCategory: 'low' },
-          'SQ': { category: 'fintech', potential: 'high', capCategory: 'medium' },
-          'RBLX': { category: 'gaming', potential: 'medium', capCategory: 'medium' },
-          'SOFI': { category: 'fintech', potential: 'high', capCategory: 'low' },
-          'OPEN': { category: 'proptech', potential: 'extreme', capCategory: 'ultra-low' },
-          'SPCE': { category: 'aerospace', potential: 'extreme', capCategory: 'ultra-low' },
-          'LCID': { category: 'ev', potential: 'high', capCategory: 'ultra-low' },
-          'HOOD': { category: 'fintech', potential: 'medium', capCategory: 'low' },
-          'NET': { category: 'tech', potential: 'medium', capCategory: 'medium' },
-          'TWLO': { category: 'tech', potential: 'high', capCategory: 'low' },
-        };
-
-        const info = stockInfo[data.symbol as keyof typeof stockInfo] || { category: 'tech', potential: 'medium', capCategory: 'medium' };
-        
-        // Generate realistic market caps based on real stock price
-        const generateMarketCap = (price: number, capCategory: string): number => {
-          const baseMultiplier = price * 1000000; // Base multiplier based on stock price
-          switch (capCategory) {
-            case 'ultra-low':
-              return baseMultiplier * (Math.random() * 0.05 + 0.01); // 1-6% of base
-            case 'low':
-              return baseMultiplier * (Math.random() * 0.15 + 0.05); // 5-20% of base
-            case 'medium':
-              return baseMultiplier * (Math.random() * 0.3 + 0.2); // 20-50% of base
-            case 'big':
-              return baseMultiplier * (Math.random() * 2 + 0.5); // 50-250% of base
-            default:
-              return baseMultiplier * 0.1; // Default to 10% of base
-          }
-        };
-
-        const gem = {
-          id: `stock-real-${data.symbol}-${Date.now()}-${index}`, // Mark as REAL stock sourced
-          symbol: data.symbol,
-          name: data.name,
-          price: data.price, // REAL price from API
-          marketCap: data.marketCap || generateMarketCap(data.price, info.capCategory),
-          volume24h: data.volume24h || Math.random() * 100000000, // Real volume or estimated
-          change24h: data.change || 0, // REAL change from API
-          description: getStockDescription(data.symbol),
-          aiScore: Number((7.5 + Math.random() * 2.5).toFixed(1)),
-          risk: data.price > 50 ? 'Low' as const : data.price > 10 ? 'Medium' as const : 'High' as const,
-          category: info.category,
-          launchDate: generateLaunchDate(data.symbol),
-          type: 'stock' as const,
-          social: { 
-            twitter: true, 
-            telegram: false, // Stocks don't typically have telegram
-            discord: false   // Stocks don't typically have discord
-          },
-          fundamentals: {
-            team: Math.floor(70 + Math.random() * 30),
-            tech: Math.floor(65 + Math.random() * 35),
-            tokenomics: Math.floor(60 + Math.random() * 40), // For stocks, this represents financials
-            community: Math.floor(55 + Math.random() * 45),
-          },
-          aiAnalysis: `Real-time analysis of ${data.symbol} shows ${data.change > 0 ? 'positive' : 'mixed'} momentum. Current price $${data.price} with ${data.change > 0 ? '+' : ''}${data.change.toFixed(1)}% movement indicates ${info.potential} potential in ${info.category} sector.`,
-          potential: info.potential,
-          timeframe: generateTimeframe('stock'),
-          lastUpdated: Date.now(),
-        };
-        
-        console.log(`📈 Created REAL stock gem: ${gem.symbol} - $${gem.price} (Real: ${data.source === 'api' ? 'YES' : 'NO'})`);
-        return gem;
-      });
-
-      return stockGems;
-      
-    } catch (error) {
-      console.error('❌ Error generating REAL stock gems:', error);
-      Alert.alert('Error', 'Failed to fetch real stock data. Please try again.');
-      return [];
-    }
+    
+    return type === 'crypto' ? 'Scan Crypto (4)' : 'Scan Stocks (4)';
   };
-
-
 
   return (
     <View style={styles.container}>
@@ -881,24 +677,22 @@ const GemFinderScreen: React.FC = () => {
         colors={theme.gradients.background as any}
         style={styles.container}
       >
-        
-
         {/* Scan Buttons */}
         <View style={styles.scanButtonsContainer}>
           <TouchableOpacity 
-            style={styles.scanButton}
+            style={[styles.scanButton, !canScan('crypto') && styles.disabledButton]}
             onPress={() => handleScanNewGems('crypto')}
-            disabled={isScanning}
+            disabled={isScanning || !canScan('crypto')}
           >
             <LinearGradient
-              colors={['#FFB000', '#FF8C00']}
+              colors={!canScan('crypto') ? ['#666', '#555'] : ['#FFB000', '#FF8C00']}
               style={styles.scanButtonGradient}
             >
               <View style={styles.scanButtonContent}>
                 <Text style={styles.scanButtonIcon}>💎</Text>
                 <View style={styles.scanButtonTextContainer}>
-                  <Text style={styles.scanButtonText}>Fresh Crypto Scan</Text>
-                  <Text style={styles.scanButtonSubText}>CoinGecko Real-Time Data</Text>
+                  <Text style={styles.scanButtonText}>{getScanButtonText('crypto')}</Text>
+                  <Text style={styles.scanButtonSubText}>CoinGecko + AI</Text>
                 </View>
                 {scanningType === 'crypto' && (
                   <ActivityIndicator size="small" color="#FFF" />
@@ -906,21 +700,20 @@ const GemFinderScreen: React.FC = () => {
               </View>
             </LinearGradient>
           </TouchableOpacity>
-
           <TouchableOpacity 
-            style={styles.scanButton}
+            style={[styles.scanButton, !canScan('stocks') && styles.disabledButton]}
             onPress={() => handleScanNewGems('stocks')}
-            disabled={isScanning}
+            disabled={isScanning || !canScan('stocks')}
           >
             <LinearGradient
-              colors={[theme.accent, '#1976D2']}
+              colors={!canScan('stocks') ? ['#666', '#555'] : [theme.accent, '#1976D2']}
               style={styles.scanButtonGradient}
             >
               <View style={styles.scanButtonContent}>
                 <Text style={styles.scanButtonIcon}>🚀</Text>
                 <View style={styles.scanButtonTextContainer}>
-                  <Text style={styles.scanButtonText}>Fresh Stock Scan</Text>
-                  <Text style={styles.scanButtonSubText}>High Growth Opportunities</Text>
+                  <Text style={styles.scanButtonText}>{getScanButtonText('stocks')}</Text>
+                  <Text style={styles.scanButtonSubText}>Alpha Vantage + AI</Text>
                 </View>
                 {scanningType === 'stocks' && (
                   <ActivityIndicator size="small" color="#FFF" />
@@ -934,78 +727,50 @@ const GemFinderScreen: React.FC = () => {
         <View style={styles.filtersContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.filters}>
-              <FilterButton filter="all" label="All" />
-              <FilterButton filter="crypto" label="🪙 Crypto" />
-              <FilterButton filter="stocks" label="📈 Stocks" />
-              
-              {/* Market Cap Filters */}
-              <View style={styles.filterSeparator} />
-              <FilterButton filter="ultra-low" label="💎 Ultra Low" />
-              <FilterButton filter="low" label="🟡 Low Cap" />
-              <FilterButton filter="medium" label="🔵 Medium" />
-              <FilterButton filter="big" label="🟢 Big Cap" />
-              
-              {/* Category Filters */}
-              <View style={styles.filterSeparator} />
-              <FilterButton filter="defi" label="DeFi" />
-              <FilterButton filter="gaming" label="Gaming" />
-              <FilterButton filter="ai" label="AI" />
-              <FilterButton filter="tech" label="Tech" />
-              <FilterButton filter="fintech" label="FinTech" />
-              <FilterButton filter="growth" label="Growth" />
-              <FilterButton filter="infrastructure" label="Infrastructure" />
+              <FilterButton filter="all" label="All Gems" />
+              <FilterButton filter="crypto" label="Crypto" />
+              <FilterButton filter="stocks" label="Stocks" />
+              <FilterButton filter="high" label="High Potential" />
+              <FilterButton filter="medium" label="Medium Risk" />
+              <FilterButton filter="low" label="Low Risk" />
             </View>
           </ScrollView>
         </View>
 
-        {/* Gems List */}
+        {/* Loading Status */}
+        {isScanning && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <Text style={styles.loadingText}>Scanning with Real APIs...</Text>
+            <Text style={styles.loadingSubText}>{loadingStatus}</Text>
+          </View>
+        )}
+
+        {/* Content */}
         <View style={styles.content}>
-          {isScanning && gems.length === 0 ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={theme.primary} />
-              <Text style={styles.loadingText}>
-                {loadingStatus || 'AI scanning for hidden gems...'}
-              </Text>
-              <Text style={styles.loadingSubText}>
-                First time loading may take a moment
-              </Text>
-            </View>
-          ) : (
+          {filteredGems.length > 0 ? (
             <FlatList
-              data={getFilteredGems()}
+              data={filteredGems}
               renderItem={renderGem}
-              keyExtractor={(item) => item.id}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.listContainer}
+              keyExtractor={(item) => `${item.symbol}-${item.type}-${Date.now()}`}
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
-                  tintColor={theme.primary}
                   colors={[theme.primary]}
-                  title="Pull to refresh prices"
                 />
               }
-              ListHeaderComponent={
-                loadingStatus && !isScanning && gems.length > 0 ? (
-                  <View style={styles.updateIndicator}>
-                    <ActivityIndicator size="small" color={theme.primary} />
-                    <Text style={styles.updateText}>{loadingStatus}</Text>
-                  </View>
-                ) : null
-              }
-              ListEmptyComponent={
-                !isScanning ? (
-                  <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyIcon}>💎</Text>
-                    <Text style={styles.emptyText}>Ready to Discover Gems</Text>
-                    <Text style={styles.emptySubText}>
-                      Tap "Fresh Crypto Scan" for real-time CoinGecko data or "Fresh Stock Scan" for growth opportunities
-                    </Text>
-                  </View>
-                ) : null
-              }
+              contentContainerStyle={styles.listContainer}
+              showsVerticalScrollIndicator={false}
             />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>🔍</Text>
+              <Text style={styles.emptyText}>No Gems Found</Text>
+              <Text style={styles.emptySubText}>
+                {isScanning ? 'Scanning for gems...' : 'Tap a scan button to find up to 4 gems with real data and AI analysis'}
+              </Text>
+            </View>
           )}
         </View>
       </LinearGradient>
@@ -1018,27 +783,10 @@ const GemFinderScreen: React.FC = () => {
         onRequestClose={() => setSelectedGem(null)}
       >
         {selectedGem && (
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity 
-                style={styles.closeButton}
-                onPress={() => {
-                  setSelectedGem(null);
-                  console.log('🔴 Modal closed - gem detail');
-                }}
-              >
-                <Text style={styles.closeButtonText}>✕ Close</Text>
-              </TouchableOpacity>
-            </View>
-            
-            <GemDetailScreenNew
-              gem={selectedGem}
-              onBack={() => {
-                setSelectedGem(null);
-                console.log('🔙 Back pressed - gem detail');
-              }}
-            />
-          </View>
+          <GemDetailScreenNew
+            gem={convertRealGemToDetailFormat(selectedGem)}
+            onBack={() => setSelectedGem(null)}
+          />
         )}
       </Modal>
     </View>
@@ -1060,6 +808,9 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: theme.borderRadius.lg,
     overflow: 'hidden',
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   scanButtonGradient: {
     paddingVertical: theme.spacing.md,
@@ -1099,13 +850,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: theme.spacing.md,
     gap: theme.spacing.sm,
-  },
-  filterSeparator: {
-    width: 1,
-    height: 20,
-    backgroundColor: theme.border,
-    marginHorizontal: theme.spacing.xs,
-    alignSelf: 'center',
   },
   filterButton: {
     paddingVertical: theme.spacing.sm,
@@ -1153,18 +897,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.textMuted,
     textAlign: 'center',
-  },
-  updateIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
-  updateText: {
-    marginLeft: theme.spacing.sm,
-    fontSize: 12,
-    color: theme.textSecondary,
   },
   emptyContainer: {
     flex: 1,
@@ -1243,23 +975,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  typeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.textSecondary,
-  },
-  categoryContainer: {
-    flex: 1,
-  },
   gemName: {
     fontSize: 13,
     color: theme.textSecondary,
     marginBottom: 4,
-  },
-  category: {
-    fontSize: 11,
-    color: theme.accent,
-    fontWeight: '600',
   },
   scoreContainer: {
     alignItems: 'center',
@@ -1276,9 +995,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: theme.background,
-  },
-  compactInfo: {
-    marginBottom: theme.spacing.md,
   },
   priceSection: {
     flexDirection: 'row',
@@ -1359,37 +1075,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: theme.textPrimary,
-  },
-  statSubLabel: {
-    fontSize: 9,
-    fontWeight: '500',
-    marginTop: 1,
-  },
-  // Modal styles
-  modalContainer: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.background,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-  },
-  closeButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.error,
-    borderRadius: theme.borderRadius.sm,
-  },
-  closeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });
 

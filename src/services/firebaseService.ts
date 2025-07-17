@@ -48,7 +48,10 @@ const COLLECTIONS = {
   MARKET_DATA: 'marketData',
   OPPORTUNITIES: 'opportunities',
   ALERTS: 'alerts',
-  SETTINGS: 'settings'
+  SETTINGS: 'settings',
+  AI_ANALYSES: 'aiAnalyses',
+  PORTFOLIOS: 'portfolios',
+  PREDICTIONS: 'predictions'
 } as const;
 
 // Interfaces for Firebase documents
@@ -181,6 +184,55 @@ export interface BacktestResultFirestore {
   averageLoss: number;
   profitFactor: number;
   equityCurve: { date: string; value: number }[];
+  createdAt: Timestamp | FieldValue;
+}
+
+export interface AIAnalysisFirestore {
+  id?: string;
+  symbol: string;
+  analysis: {
+    score: number;
+    confidence: number;
+    recommendation: string;
+    reasoning: string[];
+    keyFactors: string[];
+    risks: string[];
+    opportunities: string[];
+  };
+  predictions: any;
+  portfolio: any;
+  timestamp: Timestamp | FieldValue;
+  createdAt: Timestamp | FieldValue;
+  lastUpdated: Timestamp | FieldValue;
+}
+
+export interface PortfolioFirestore {
+  id?: string;
+  name: string;
+  description: string;
+  riskProfile: string;
+  budget: number;
+  allocation: any[];
+  metrics: any;
+  performance: any;
+  rebalancing: any;
+  isActive: boolean;
+  userId?: string;
+  createdAt: Timestamp | FieldValue;
+  lastUpdated: Timestamp | FieldValue;
+}
+
+export interface PredictionFirestore {
+  id?: string;
+  symbol: string;
+  prediction: any;
+  analysis: any;
+  signals: any;
+  riskAssessment: any;
+  technicalIndicators: any;
+  aiModels: any;
+  marketSentiment: any;
+  timestamp: Timestamp | FieldValue;
   createdAt: Timestamp | FieldValue;
 }
 
@@ -1171,6 +1223,301 @@ service cloud.firestore {
         });
       });
       callback(alerts);
+    });
+  }
+
+  // ==================== AI ANALYSIS MANAGEMENT ====================
+
+  async saveAnalysis(analysis: Omit<AIAnalysisFirestore, 'id'>): Promise<string> {
+    try {
+      const analysisData: Omit<AIAnalysisFirestore, 'id'> = {
+        ...analysis,
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      };
+      
+      const docRef = await addDoc(collection(db, COLLECTIONS.AI_ANALYSES), analysisData);
+      console.log(`✅ Saved AI analysis for ${analysis.symbol} to Firebase`);
+      return docRef.id;
+    } catch (error) {
+      console.error('❌ Error saving AI analysis:', error);
+      throw error;
+    }
+  }
+
+  async getAnalyses(symbol?: string, limit_count = 50): Promise<AIAnalysisFirestore[]> {
+    try {
+      let q;
+      
+      if (symbol) {
+        q = query(
+          collection(db, COLLECTIONS.AI_ANALYSES),
+          where('symbol', '==', symbol),
+          orderBy('timestamp', 'desc'),
+          limit(limit_count)
+        );
+      } else {
+        q = query(
+          collection(db, COLLECTIONS.AI_ANALYSES),
+          orderBy('timestamp', 'desc'),
+          limit(limit_count)
+        );
+      }
+      
+      const querySnapshot = await getDocs(q);
+      const analyses: AIAnalysisFirestore[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data && typeof data === 'object' && data !== null) {
+          analyses.push({ id: doc.id, ...data } as AIAnalysisFirestore);
+        }
+      });
+      
+      console.log(`📖 Retrieved ${analyses.length} AI analyses from Firebase`);
+      return analyses;
+    } catch (error) {
+      console.error('❌ Error getting AI analyses:', error);
+      return [];
+    }
+  }
+
+  async updateAnalysis(analysisId: string, updates: Partial<AIAnalysisFirestore>): Promise<boolean> {
+    try {
+      const updateData = {
+        ...updates,
+        lastUpdated: serverTimestamp()
+      };
+      
+      await updateDoc(doc(db, COLLECTIONS.AI_ANALYSES, analysisId), updateData);
+      console.log(`✅ Updated AI analysis ${analysisId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating AI analysis:', error);
+      return false;
+    }
+  }
+
+  async deleteAnalysis(analysisId: string): Promise<boolean> {
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.AI_ANALYSES, analysisId));
+      console.log(`✅ Deleted AI analysis ${analysisId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error deleting AI analysis:', error);
+      return false;
+    }
+  }
+
+  // ==================== PORTFOLIO MANAGEMENT ====================
+
+  async savePortfolio(portfolio: Omit<PortfolioFirestore, 'id'>): Promise<string> {
+    try {
+      const portfolioData: Omit<PortfolioFirestore, 'id'> = {
+        ...portfolio,
+        createdAt: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      };
+      
+      const docRef = await addDoc(collection(db, COLLECTIONS.PORTFOLIOS), portfolioData);
+      console.log(`✅ Saved portfolio ${portfolio.name} to Firebase`);
+      return docRef.id;
+    } catch (error) {
+      console.error('❌ Error saving portfolio:', error);
+      throw error;
+    }
+  }
+
+  async getPortfolios(userId?: string, limit_count = 50): Promise<PortfolioFirestore[]> {
+    try {
+      let q;
+      
+      if (userId) {
+        q = query(
+          collection(db, COLLECTIONS.PORTFOLIOS),
+          where('userId', '==', userId),
+          orderBy('createdAt', 'desc'),
+          limit(limit_count)
+        );
+      } else {
+        q = query(
+          collection(db, COLLECTIONS.PORTFOLIOS),
+          orderBy('createdAt', 'desc'),
+          limit(limit_count)
+        );
+      }
+      
+      const querySnapshot = await getDocs(q);
+      const portfolios: PortfolioFirestore[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data && typeof data === 'object' && data !== null) {
+          portfolios.push({ id: doc.id, ...data } as PortfolioFirestore);
+        }
+      });
+      
+      console.log(`📖 Retrieved ${portfolios.length} portfolios from Firebase`);
+      return portfolios;
+    } catch (error) {
+      console.error('❌ Error getting portfolios:', error);
+      return [];
+    }
+  }
+
+  async updatePortfolio(portfolioId: string, updates: Partial<PortfolioFirestore>): Promise<boolean> {
+    try {
+      const updateData = {
+        ...updates,
+        lastUpdated: serverTimestamp()
+      };
+      
+      await updateDoc(doc(db, COLLECTIONS.PORTFOLIOS, portfolioId), updateData);
+      console.log(`✅ Updated portfolio ${portfolioId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating portfolio:', error);
+      return false;
+    }
+  }
+
+  async deletePortfolio(portfolioId: string): Promise<boolean> {
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.PORTFOLIOS, portfolioId));
+      console.log(`✅ Deleted portfolio ${portfolioId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error deleting portfolio:', error);
+      return false;
+    }
+  }
+
+  async getPortfolioById(portfolioId: string): Promise<PortfolioFirestore | null> {
+    try {
+      const docRef = doc(db, COLLECTIONS.PORTFOLIOS, portfolioId);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        return { id: docSnap.id, ...docSnap.data() } as PortfolioFirestore;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('❌ Error getting portfolio by ID:', error);
+      return null;
+    }
+  }
+
+  // ==================== PREDICTIONS MANAGEMENT ====================
+
+  async savePrediction(prediction: Omit<PredictionFirestore, 'id'>): Promise<string> {
+    try {
+      const predictionData: Omit<PredictionFirestore, 'id'> = {
+        ...prediction,
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp()
+      };
+      
+      const docRef = await addDoc(collection(db, COLLECTIONS.PREDICTIONS), predictionData);
+      console.log(`✅ Saved prediction for ${prediction.symbol} to Firebase`);
+      return docRef.id;
+    } catch (error) {
+      console.error('❌ Error saving prediction:', error);
+      throw error;
+    }
+  }
+
+  async getPredictions(symbol?: string, limit_count = 50): Promise<PredictionFirestore[]> {
+    try {
+      let q;
+      
+      if (symbol) {
+        q = query(
+          collection(db, COLLECTIONS.PREDICTIONS),
+          where('symbol', '==', symbol),
+          orderBy('timestamp', 'desc'),
+          limit(limit_count)
+        );
+      } else {
+        q = query(
+          collection(db, COLLECTIONS.PREDICTIONS),
+          orderBy('timestamp', 'desc'),
+          limit(limit_count)
+        );
+      }
+      
+      const querySnapshot = await getDocs(q);
+      const predictions: PredictionFirestore[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data && typeof data === 'object' && data !== null) {
+          predictions.push({ id: doc.id, ...data } as PredictionFirestore);
+        }
+      });
+      
+      console.log(`📖 Retrieved ${predictions.length} predictions from Firebase`);
+      return predictions;
+    } catch (error) {
+      console.error('❌ Error getting predictions:', error);
+      return [];
+    }
+  }
+
+  // ==================== REAL-TIME SUBSCRIPTIONS ====================
+
+  subscribeToAnalyses(callback: (analyses: AIAnalysisFirestore[]) => void, symbol?: string) {
+    let q;
+    
+    if (symbol) {
+      q = query(
+        collection(db, COLLECTIONS.AI_ANALYSES),
+        where('symbol', '==', symbol),
+        orderBy('timestamp', 'desc'),
+        limit(20)
+      );
+    } else {
+      q = query(
+        collection(db, COLLECTIONS.AI_ANALYSES),
+        orderBy('timestamp', 'desc'),
+        limit(20)
+      );
+    }
+
+    return onSnapshot(q, (querySnapshot) => {
+      const analyses: AIAnalysisFirestore[] = [];
+      querySnapshot.forEach((doc) => {
+        analyses.push({ id: doc.id, ...doc.data() } as AIAnalysisFirestore);
+      });
+      callback(analyses);
+    });
+  }
+
+  subscribeToPortfolios(callback: (portfolios: PortfolioFirestore[]) => void, userId?: string) {
+    let q;
+    
+    if (userId) {
+      q = query(
+        collection(db, COLLECTIONS.PORTFOLIOS),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc'),
+        limit(20)
+      );
+    } else {
+      q = query(
+        collection(db, COLLECTIONS.PORTFOLIOS),
+        orderBy('createdAt', 'desc'),
+        limit(20)
+      );
+    }
+
+    return onSnapshot(q, (querySnapshot) => {
+      const portfolios: PortfolioFirestore[] = [];
+      querySnapshot.forEach((doc) => {
+        portfolios.push({ id: doc.id, ...doc.data() } as PortfolioFirestore);
+      });
+      callback(portfolios);
     });
   }
 }

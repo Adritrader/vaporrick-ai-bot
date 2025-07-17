@@ -1,14 +1,4 @@
 /**
- * Entrenar modelo DNN o LSTM para un activo (simulado)
- */
-VectorFluxService.prototype.trainModel = async function(modelType, symbol) {
-  // Simula entrenamiento (en producción, conecta con el core real)
-  console.log(`🧠 Entrenando modelo ${modelType} para ${symbol}...`);
-  await new Promise(res => setTimeout(res, 2500));
-  console.log(`✅ Modelo ${modelType} para ${symbol} entrenado.`);
-  return true;
-};
-/**
  * VectorFlux AI - Main Integration Service
  * Servicio principal que integra todos los componentes de IA
  */
@@ -20,14 +10,52 @@ import { sentimentAnalysisService } from './sentimentAnalysisService';
 export class VectorFluxService {
   /**
    * Entrenar modelo DNN o LSTM para un activo
-   * (Definido dinámicamente, pero declarado aquí para TypeScript)
    */
-  trainModel(modelType, symbol) {
-    // Implementación real agregada dinámicamente abajo
-    return Promise.resolve(true);
+  async trainModel(modelType, symbol, trainingData = null) {
+    try {
+      console.log(`🧠 Training ${modelType} model for ${symbol}...`);
+      
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      
+      // Obtener datos de entrenamiento si no se proporcionan
+      if (!trainingData) {
+        trainingData = await this.getMarketData(symbol, '2y'); // Más datos para mejor entrenamiento
+      }
+      
+      if (trainingData.length < 100) {
+        throw new Error(`Insufficient training data for ${symbol}: ${trainingData.length} points`);
+      }
+      
+      // Entrenar el modelo usando vectorFluxAI
+      const trainingResult = await vectorFluxAI.trainModel(modelType, symbol, trainingData);
+      
+      if (trainingResult.success) {
+        console.log(`✅ Model ${modelType} for ${symbol} trained successfully`);
+        console.log(`📊 Training metrics:`, trainingResult.metrics);
+        
+        // Guardar en caché
+        this.cache.set(`model_${modelType}_${symbol}`, {
+          modelType,
+          symbol,
+          trainedAt: new Date().toISOString(),
+          metrics: trainingResult.metrics
+        });
+        
+        return trainingResult;
+      } else {
+        throw new Error(`Training failed: ${trainingResult.error}`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error training model ${modelType} for ${symbol}:`, error);
+      throw error;
+    }
   }
   constructor() {
     this.isInitialized = false;
+    this.initializationTime = null;
     this.cache = new Map();
     this.analysisHistory = [];
   }
@@ -36,8 +64,14 @@ export class VectorFluxService {
    * Inicializar VectorFlux AI completo
    */
   async initialize() {
+    if (this.isInitialized) {
+      console.log('✅ VectorFlux AI already initialized');
+      return true;
+    }
+    
     try {
       console.log('🚀 Initializing VectorFlux AI Ecosystem...');
+      this.initializationTime = Date.now();
       
       // Inicializar core AI
       const coreInitialized = await vectorFluxAI.initialize();
@@ -51,6 +85,8 @@ export class VectorFluxService {
       return true;
     } catch (error) {
       console.error('❌ Error initializing VectorFlux AI:', error);
+      this.isInitialized = false;
+      this.initializationTime = null;
       return false;
     }
   }
@@ -59,53 +95,89 @@ export class VectorFluxService {
    * Análisis completo de un activo con IA
    */
   async performCompleteAnalysis(symbol, options = {}) {
-    if (!this.isInitialized) {
-      console.warn('⚠️ VectorFlux AI not initialized, using basic analysis');
-    }
-
+    const analysisId = `analysis_${symbol}_${Date.now()}`;
+    
     try {
       console.log(`🔬 Starting complete AI analysis for ${symbol}...`);
       
+      // Validar parámetros
+      if (!symbol || typeof symbol !== 'string') {
+        throw new Error('Invalid symbol provided');
+      }
+      
       const startTime = Date.now();
       
-      // 1. Obtener datos de mercado históricos
-      const marketData = await this.getMarketData(symbol, options.period || '1y');
+      // Verificar caché
+      const cacheKey = `analysis_${symbol}_${options.period || '1y'}`;
+      const cached = this.cache.get(cacheKey);
+      const cacheTimeout = 5 * 60 * 1000; // 5 minutos
       
-      // 2. Análisis de sentimiento
-      const sentimentData = await sentimentAnalysisService.getRealTimeSentiment(symbol);
-      
-      // 3. Procesamiento con IA
-      let aiAnalysis = null;
-      if (this.isInitialized && marketData.length > 60) {
-        aiAnalysis = await marketDataProcessor.analyzeWithAI(
-          symbol, 
-          marketData, 
-          sentimentData?.sources?.map(s => s.title).join(' ') || ''
-        );
+      if (cached && (Date.now() - cached.timestamp) < cacheTimeout) {
+        console.log(`� Using cached analysis for ${symbol}`);
+        return cached.data;
       }
-
-      // 4. Análisis técnico avanzado
+      
+      // Inicializar si no está listo
+      if (!this.isInitialized) {
+        console.log('⚠️ VectorFlux AI not initialized, initializing now...');
+        await this.initialize();
+      }
+      
+      // Ejecutar análisis en paralelo para mejorar performance
+      const [marketData, sentimentData] = await Promise.all([
+        this.getMarketData(symbol, options.period || '1y'),
+        sentimentAnalysisService.getRealTimeSentiment(symbol).catch(error => {
+          console.warn(`⚠️ Sentiment analysis failed for ${symbol}:`, error.message);
+          return null;
+        })
+      ]);
+      
+      // Validar datos mínimos
+      if (!marketData || marketData.length < 30) {
+        throw new Error(`Insufficient market data for ${symbol}: ${marketData?.length || 0} points`);
+      }
+      
+      // Análisis técnico (siempre disponible)
       const technicalAnalysis = this.performAdvancedTechnicalAnalysis(marketData);
       
-      // 5. Evaluación de riesgo
+      // Análisis con IA (solo si hay suficientes datos)
+      let aiAnalysis = null;
+      if (this.isInitialized && marketData.length > 60) {
+        try {
+          aiAnalysis = await marketDataProcessor.analyzeWithAI(
+            symbol, 
+            marketData, 
+            sentimentData?.sources?.map(s => s.title).join(' ') || ''
+          );
+        } catch (error) {
+          console.warn(`⚠️ AI analysis failed for ${symbol}:`, error.message);
+        }
+      }
+      
+      // Evaluación de riesgo
       const riskAssessment = this.performRiskAssessment(marketData, sentimentData, aiAnalysis);
       
-      // 6. Generación de estrategias
+      // Generación de estrategias
       const strategies = this.generateTradingStrategies(aiAnalysis, technicalAnalysis, sentimentData);
       
-      // 7. Predicciones de precio
+      // Predicciones de precio
       const pricePredictions = await this.generatePricePredictions(symbol, marketData, aiAnalysis);
 
       const analysisTime = Date.now() - startTime;
       
       const completeAnalysis = {
+        analysisId,
         symbol,
         timestamp: new Date().toISOString(),
         analysisTime: `${analysisTime}ms`,
         
         // Datos base
-        currentPrice: marketData[marketData.length - 1]?.close || 0,
-        priceChange24h: this.calculatePriceChange(marketData),
+        marketData: {
+          currentPrice: marketData[marketData.length - 1]?.close || 0,
+          priceChange24h: this.calculatePriceChange(marketData),
+          dataPoints: marketData.length,
+          lastUpdate: marketData[marketData.length - 1]?.date
+        },
         
         // Análisis AI
         aiAnalysis,
@@ -129,14 +201,29 @@ export class VectorFluxService {
         summary: this.generateExecutiveSummary(aiAnalysis, technicalAnalysis, sentimentData, strategies),
         
         // Confianza general
-        overallConfidence: this.calculateOverallConfidence(aiAnalysis, technicalAnalysis, sentimentData)
+        overallConfidence: this.calculateOverallConfidence(aiAnalysis, technicalAnalysis, sentimentData),
+        
+        // Metadatos
+        metadata: {
+          aiInitialized: this.isInitialized,
+          dataQuality: this.assessDataQuality(marketData, sentimentData),
+          analysisVersion: '2.0'
+        }
       };
 
+      // Guardar en caché
+      this.cache.set(cacheKey, {
+        data: completeAnalysis,
+        timestamp: Date.now()
+      });
+      
       // Guardar en historial
       this.analysisHistory.push({
+        analysisId,
         symbol,
         timestamp: completeAnalysis.timestamp,
-        summary: completeAnalysis.summary
+        summary: completeAnalysis.summary,
+        confidence: completeAnalysis.overallConfidence
       });
 
       // Mantener solo los últimos 100 análisis
@@ -154,53 +241,27 @@ export class VectorFluxService {
   }
 
   /**
-   * Obtener datos de mercado (simulado)
+   * Obtener datos de mercado reales
    */
   async getMarketData(symbol, period = '1y') {
-    // En producción, esto se conectaría a APIs reales
-    return this.generateMockMarketData(symbol, period);
-  }
-
-  /**
-   * Generar datos de mercado simulados para demostración
-   */
-  generateMockMarketData(symbol, period) {
-    const days = period === '1y' ? 365 : period === '6m' ? 180 : period === '3m' ? 90 : 30;
-    const data = [];
-    
-    let basePrice = 100; // Precio base
-    if (symbol === 'BTC') basePrice = 45000;
-    else if (symbol === 'ETH') basePrice = 3000;
-    else if (symbol === 'AAPL') basePrice = 180;
-    else if (symbol === 'TSLA') basePrice = 250;
-    
-    let currentPrice = basePrice;
-    
-    for (let i = 0; i < days; i++) {
-      const volatility = 0.02; // 2% de volatilidad diaria
-      const change = (Math.random() - 0.5) * 2 * volatility;
+    try {
+      // Importar el servicio de datos reales
+      const { realDataService } = await import('../services/realDataService');
       
-      const open = currentPrice;
-      const priceMove = open * change;
-      const close = open + priceMove;
+      // Obtener datos históricos reales
+      const marketData = await realDataService.getHistoricalData(symbol, period);
       
-      const high = Math.max(open, close) * (1 + Math.random() * 0.01);
-      const low = Math.min(open, close) * (1 - Math.random() * 0.01);
-      const volume = Math.floor(Math.random() * 1000000) + 500000;
+      if (!marketData || marketData.length === 0) {
+        throw new Error(`No market data available for ${symbol}`);
+      }
       
-      data.push({
-        date: new Date(Date.now() - (days - i) * 24 * 60 * 60 * 1000).toISOString(),
-        open,
-        high,
-        low,
-        close,
-        volume
-      });
+      console.log(`📊 Retrieved ${marketData.length} data points for ${symbol}`);
+      return marketData;
       
-      currentPrice = close;
+    } catch (error) {
+      console.error(`❌ Error fetching market data for ${symbol}:`, error);
+      throw error;
     }
-    
-    return data;
   }
 
   /**
@@ -761,27 +822,189 @@ export class VectorFluxService {
   }
 
   /**
-   * Obtener estado del sistema
+   * Obtener estado completo del sistema
    */
   getSystemStatus() {
+    const uptime = Date.now() - (this.initializationTime || Date.now());
+    const recentAnalyses = this.analysisHistory.slice(-10);
+    
     return {
+      // Estado básico
       initialized: this.isInitialized,
-      cacheSize: this.cache.size,
-      historyLength: this.analysisHistory.length,
-      aiModel: vectorFluxAI.getModelSummary(),
-      timestamp: new Date().toISOString()
+      uptime: `${Math.floor(uptime / 1000)}s`,
+      
+      // Estadísticas de caché
+      cache: {
+        size: this.cache.size,
+        maxSize: 100,
+        utilizationPercent: (this.cache.size / 100) * 100
+      },
+      
+      // Estadísticas de análisis
+      analytics: {
+        totalAnalyses: this.analysisHistory.length,
+        recentAnalyses: recentAnalyses.length,
+        averageConfidence: recentAnalyses.length > 0 
+          ? (recentAnalyses.reduce((sum, a) => sum + (a.confidence || 0), 0) / recentAnalyses.length).toFixed(3)
+          : 0,
+        lastAnalysis: this.analysisHistory.length > 0 
+          ? this.analysisHistory[this.analysisHistory.length - 1]
+          : null
+      },
+      
+      // Estado de componentes
+      components: {
+        vectorFluxAI: this.isInitialized ? 'ACTIVE' : 'INACTIVE',
+        marketDataProcessor: 'ACTIVE',
+        sentimentAnalysis: 'ACTIVE'
+      },
+      
+      // Información del sistema
+      system: {
+        version: '2.0',
+        nodeVersion: process.version,
+        timestamp: new Date().toISOString(),
+        memoryUsage: process.memoryUsage ? {
+          heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+          heapTotal: `${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)}MB`
+        } : 'N/A'
+      }
     };
   }
 
   /**
-   * Limpiar recursos
+   * Limpiar recursos y resetear sistema
    */
   dispose() {
-    vectorFluxAI.dispose();
-    this.cache.clear();
-    this.analysisHistory = [];
-    this.isInitialized = false;
-    console.log('🧹 VectorFlux Service disposed');
+    try {
+      console.log('🧹 Disposing VectorFlux Service...');
+      
+      // Limpiar vectorFluxAI
+      if (vectorFluxAI && typeof vectorFluxAI.dispose === 'function') {
+        vectorFluxAI.dispose();
+      }
+      
+      // Limpiar caché
+      this.cache.clear();
+      
+      // Limpiar historial
+      this.analysisHistory = [];
+      
+      // Resetear estado
+      this.isInitialized = false;
+      this.initializationTime = null;
+      
+      console.log('✅ VectorFlux Service disposed successfully');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Error disposing VectorFlux Service:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Evaluar calidad de datos
+   */
+  assessDataQuality(marketData, sentimentData) {
+    const quality = {
+      market: 'POOR',
+      sentiment: 'UNAVAILABLE',
+      overall: 'POOR',
+      issues: []
+    };
+    
+    // Evaluar calidad de datos de mercado
+    if (marketData && marketData.length > 0) {
+      const dataPoints = marketData.length;
+      const missingData = marketData.filter(d => !d.close || !d.volume).length;
+      const dataCompleteness = (dataPoints - missingData) / dataPoints;
+      
+      if (dataPoints >= 365 && dataCompleteness > 0.95) {
+        quality.market = 'EXCELLENT';
+      } else if (dataPoints >= 180 && dataCompleteness > 0.9) {
+        quality.market = 'GOOD';
+      } else if (dataPoints >= 60 && dataCompleteness > 0.8) {
+        quality.market = 'FAIR';
+      } else {
+        quality.issues.push(`Insufficient market data: ${dataPoints} points, ${(dataCompleteness * 100).toFixed(1)}% complete`);
+      }
+    }
+    
+    // Evaluar calidad de datos de sentimiento
+    if (sentimentData && sentimentData.sources) {
+      const sourcesCount = sentimentData.sources.length;
+      const confidence = sentimentData.overall?.confidence || 0;
+      
+      if (sourcesCount >= 10 && confidence > 0.7) {
+        quality.sentiment = 'EXCELLENT';
+      } else if (sourcesCount >= 5 && confidence > 0.5) {
+        quality.sentiment = 'GOOD';
+      } else if (sourcesCount >= 2 && confidence > 0.3) {
+        quality.sentiment = 'FAIR';
+      } else {
+        quality.sentiment = 'POOR';
+        quality.issues.push(`Limited sentiment data: ${sourcesCount} sources, ${(confidence * 100).toFixed(1)}% confidence`);
+      }
+    }
+    
+    // Calidad general
+    const marketScore = quality.market === 'EXCELLENT' ? 4 : quality.market === 'GOOD' ? 3 : quality.market === 'FAIR' ? 2 : 1;
+    const sentimentScore = quality.sentiment === 'EXCELLENT' ? 4 : quality.sentiment === 'GOOD' ? 3 : quality.sentiment === 'FAIR' ? 2 : quality.sentiment === 'POOR' ? 1 : 0;
+    
+    const overallScore = (marketScore * 0.7 + sentimentScore * 0.3);
+    
+    if (overallScore >= 3.5) quality.overall = 'EXCELLENT';
+    else if (overallScore >= 2.5) quality.overall = 'GOOD';
+    else if (overallScore >= 1.5) quality.overall = 'FAIR';
+    
+    return quality;
+  }
+
+  /**
+   * Limpiar caché expirado
+   */
+  clearExpiredCache(maxAge = 30 * 60 * 1000) { // 30 minutos por defecto
+    const now = Date.now();
+    const keysToDelete = [];
+    
+    for (const [key, value] of this.cache.entries()) {
+      if (value.timestamp && (now - value.timestamp) > maxAge) {
+        keysToDelete.push(key);
+      }
+    }
+    
+    keysToDelete.forEach(key => this.cache.delete(key));
+    
+    if (keysToDelete.length > 0) {
+      console.log(`🧹 Cleared ${keysToDelete.length} expired cache entries`);
+    }
+    
+    return keysToDelete.length;
+  }
+
+  /**
+   * Obtener estadísticas de caché
+   */
+  getCacheStats() {
+    const now = Date.now();
+    let totalSize = 0;
+    let expiredEntries = 0;
+    const maxAge = 30 * 60 * 1000; // 30 minutos
+    
+    for (const [key, value] of this.cache.entries()) {
+      totalSize += JSON.stringify(value).length;
+      if (value.timestamp && (now - value.timestamp) > maxAge) {
+        expiredEntries++;
+      }
+    }
+    
+    return {
+      entries: this.cache.size,
+      estimatedSizeBytes: totalSize,
+      expiredEntries,
+      utilizationPercent: (this.cache.size / 100) * 100
+    };
   }
 }
 

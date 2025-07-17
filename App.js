@@ -18,7 +18,7 @@ import { testAPIConfiguration, getDataSourceStatus } from './src/services/apiTes
 import ErrorBoundary from './src/components/ErrorBoundary';
 import HomeScreen from './src/screens/HomeScreen';
 import GemFinderScreen from './src/screens/GemFinderScreenNew';
-import StrategyScreenNewEnhanced from './src/screens/StrategyScreenNewEnhanced_Simple';
+import StrategyScreenNewEnhanced_Simple from './src/screens/StrategyScreenEnhanced';
 import TradingScreenNew from './src/screens/TradingScreenNew';
 import PortfolioScreen from './src/screens/DashboardScreen';
 import DocumentationScreen from './src/screens/DocumentationScreen';
@@ -116,7 +116,7 @@ export default function App() {
       case 'gemfinder':
         return <GemFinderScreen />;
       case 'strategies':
-        return <StrategyScreenNewEnhanced />;
+        return <StrategyScreenNewEnhanced_Simple />;
       case 'trading':
         return <TradingScreenNew />;
       case 'portfolio':

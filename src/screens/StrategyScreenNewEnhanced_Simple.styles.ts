@@ -1,0 +1,1533 @@
+import { StyleSheet, Dimensions } from 'react-native';
+import { theme } from '../theme/colors';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+export const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  
+    // Estilos adicionales para componentes de IA específicos
+  aiAnalysisComponent: {
+    backgroundColor: 'rgba(102, 126, 234, 0.08)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.2)',
+  },
+  aiAnalysisTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#667eea',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  aiAnalysisText: {
+    fontSize: 13,
+    color: '#ffffff',
+    lineHeight: 18,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  aiAnalysisHighlight: {
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginVertical: 4,
+  },
+  aiAnalysisHighlightText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  
+  // Estilos para indicadores técnicos avanzados
+  technicalIndicatorsContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  technicalIndicatorsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  technicalIndicatorsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  technicalIndicatorItem: {
+    width: '31%',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  technicalIndicatorLabel: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginBottom: 2,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  technicalIndicatorValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  
+  // Estilos para recomendaciones de trading
+  tradingRecommendationsContainer: {
+    backgroundColor: 'rgba(46, 204, 113, 0.08)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(46, 204, 113, 0.2)',
+  },
+  tradingRecommendationsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2ecc71',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  tradingRecommendationItem: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#2ecc71',
+  },
+  tradingRecommendationText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  
+  // Estilos para alertas y riesgos
+  riskAlertsContainer: {
+    backgroundColor: 'rgba(231, 76, 60, 0.08)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(231, 76, 60, 0.2)',
+  },
+  riskAlertsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#e74c3c',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  riskAlertItem: {
+    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#e74c3c',
+  },
+  riskAlertText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  
+  // Estilos para modal de análisis detallado
+  detailedAnalysisModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    paddingTop: 40,
+  },
+  detailedAnalysisScrollView: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  detailedAnalysisHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  detailedAnalysisTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+    flex: 1,
+  },
+  detailedAnalysisCloseButton: {
+    backgroundColor: 'rgba(231, 76, 60, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e74c3c',
+  },
+  detailedAnalysisCloseButtonText: {
+    fontSize: 12,
+    color: '#e74c3c',
+    fontWeight: '600',
+  },
+  
+  // Estilos para secciones del modal detallado
+  detailedAnalysisSection: {
+    marginBottom: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  detailedAnalysisSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#667eea',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  // Analysis styles - Más compacto (mantenidos para compatibilidad)
+  analysisItem: {
+    marginBottom: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  analysisGradient: {
+    padding: 12,
+    borderRadius: 12,
+    minHeight: 90,
+  },
+  analysisHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  analysisSymbol: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    flex: 1,
+  },
+  analysisPrice: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffffff',
+    textAlign: 'right',
+  },
+  analysisMetrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  analysisFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  trendText: {
+    fontSize: 11,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 12,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  headerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+  headerContent: {
+    zIndex: 1,
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 6,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  
+  // Search styles - Más compacto
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#0f0f0f',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  searchInput: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.2)',
+    fontWeight: '500',
+  },
+  searchInputFocused: {
+    borderColor: '#667eea',
+    shadowColor: '#667eea',
+    shadowOpacity: 0.2,
+  },
+  
+  // Tab styles - Cuadrícula 3x2 real
+  tabContainer: {
+    backgroundColor: '#0f0f0f',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  tabGrid: {
+    flexDirection: 'column',
+    gap: 10,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  tab: {
+    width: (screenWidth - 56) / 3,
+    height: 50,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  activeTab: {
+    backgroundColor: '#667eea',
+    borderColor: '#667eea',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    transform: [{ scale: 1.02 }],
+  },
+  tabInnerContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  tabText: {
+    fontSize: 10,
+    color: '#a0a0a0',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 2,
+    letterSpacing: 0.1,
+    lineHeight: 12,
+  },
+  activeTabText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  
+  // Tab icon styles - Más pequeños para la cuadrícula
+  tabIcon: {
+    fontSize: 16,
+    marginBottom: 2,
+    color: '#a0a0a0',
+  },
+  activeTabIcon: {
+    color: '#ffffff',
+  },
+  
+  // Status bar styles - More elegant
+  statusBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#0f0f0f',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  statusText: {
+    fontSize: 13,
+    color: '#a0a0a0',
+    fontWeight: '500',
+  },
+  statusIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.2)',
+  },
+  statusIndicatorText: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  
+  // Content styles - Más compacto
+  content: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    backgroundColor: '#0a0a0a',
+  },
+  section: {
+    flex: 1,
+    paddingVertical: 6,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.2,
+  },
+  sectionSubtitle: {
+    fontSize: 11,
+    color: '#a0a0a0',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  
+  // Gem styles - Más compacto
+  gemItem: {
+    marginBottom: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  gemGradient: {
+    padding: 12,
+    borderRadius: 12,
+    minHeight: 80,
+    justifyContent: 'space-between',
+  },
+  gemsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  gemsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    flex: 1,
+    marginRight: 6,
+  },
+  gemName: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  gemsMetrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  gemPrice: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  gemChange: {
+    fontSize: 11,
+    fontWeight: '600',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    textAlign: 'center',
+  },
+  gemChangePositive: {
+    color: '#00ff88',
+    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+  },
+  gemChangeNegative: {
+    color: '#ff4757',
+    backgroundColor: 'rgba(255, 71, 87, 0.1)',
+  },
+  gemsIndicators: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  
+  // Symbol container styles
+  symbolContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sourceIndicator: {
+    marginLeft: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 4,
+  },
+  sourceText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  
+  // Technical indicators styles - Más compacto
+  technicalIndicators: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  technicalIndicator: {
+    alignItems: 'center',
+    flex: 1,
+    paddingHorizontal: 4,
+  },
+  technicalLabel: {
+    fontSize: 9,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 2,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  technicalValue: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  technicalValueBullish: {
+    color: '#00ff88',
+  },
+  technicalValueBearish: {
+    color: '#ff4757',
+  },
+  technicalValueNeutral: {
+    color: '#ffa502',
+  },
+  
+  // Mini indicators for technical analysis - Enhanced
+  miniIndicator: {
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  miniIndicatorLabel: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 4,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  miniIndicatorValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  
+  // Super Analysis Card - Diseño moderno que combina datos de mercado y AI
+  superAnalysisCard: {
+    marginBottom: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(102, 126, 234, 0.3)',
+  },
+  superAnalysisGradient: {
+    padding: 20,
+    minHeight: 300,
+  },
+  superAnalysisHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  superAnalysisSymbol: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#ffffff',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  superAnalysisPrice: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  superAnalysisRecommendation: {
+    fontSize: 16,
+    fontWeight: '700',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    overflow: 'hidden',
+    textAlign: 'center',
+    minWidth: 80,
+  },
+  
+  // Sección de métricas técnicas
+  superAnalysisMetricsSection: {
+    marginBottom: 16,
+  },
+  superAnalysisMetricsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  superAnalysisMetricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  superAnalysisMetricItem: {
+    width: '48%',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  superAnalysisMetricLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  superAnalysisMetricValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  
+  // Sección de análisis de IA
+  superAnalysisAISection: {
+    marginBottom: 16,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.3)',
+  },
+  superAnalysisAITitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#667eea',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  superAnalysisAIInsight: {
+    fontSize: 14,
+    color: '#ffffff',
+    lineHeight: 20,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  superAnalysisAIConclusion: {
+    fontSize: 15,
+    color: '#ffffff',
+    lineHeight: 22,
+    fontWeight: '600',
+    fontStyle: 'italic',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 12,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#667eea',
+  },
+  
+  // Sección de señales de trading
+  superAnalysisSignalsSection: {
+    marginBottom: 16,
+  },
+  superAnalysisSignalsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  superAnalysisSignalsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  superAnalysisSignalItem: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 10,
+    borderRadius: 10,
+    marginHorizontal: 4,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  superAnalysisSignalLabel: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginBottom: 4,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  superAnalysisSignalValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  
+  // Footer con información adicional
+  superAnalysisFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  superAnalysisConfidence: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '600',
+  },
+  superAnalysisTimestamp: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontWeight: '500',
+  },
+  
+  // Estilos para el expandible/colapsable
+  superAnalysisExpandButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 12,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  superAnalysisExpandButtonText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  superAnalysisExpandedContent: {
+    marginTop: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  trendBullish: {
+    color: '#00ff88',
+    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+  },
+  trendBearish: {
+    color: '#ff4757',
+    backgroundColor: 'rgba(255, 71, 87, 0.1)',
+  },
+  trendNeutral: {
+    color: '#ffa502',
+    backgroundColor: 'rgba(255, 165, 2, 0.1)',
+  },
+  riskText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  
+  // AI Analysis preview styles
+  aiAnalysisPreview: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+  },
+  aiAnalysisLabel: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginBottom: 4,
+  },
+  aiAnalysisValue: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  
+  // Strategy styles - Más compacto
+  strategyItem: {
+    marginBottom: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  strategyGradient: {
+    padding: 12,
+    borderRadius: 12,
+    minHeight: 95,
+  },
+  strategyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  strategyName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    flex: 1,
+    marginRight: 8,
+  },
+  strategyType: {
+    fontSize: 10,
+    color: '#ffffff',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    fontWeight: '600',
+    overflow: 'hidden',
+  },
+  strategyMetrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  strategyFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  strategyStatus: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#00ff88',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  strategyUpdated: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontWeight: '500',
+  },
+  
+  // Common metric styles - Más compacto
+  metric: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    minWidth: 60,
+  },
+  metricLabel: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 3,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  metricValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  metricValuePositive: {
+    color: '#00ff88',
+  },
+  metricValueNegative: {
+    color: '#ff4757',
+  },
+  
+  // Indicator styles - Modern design
+  indicator: {
+    alignItems: 'center',
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 4,
+  },
+  indicatorLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 6,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  indicatorValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  
+  // Button styles - Professional design
+  generateButton: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 16,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  generateButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: 0.5,
+  },
+  generateButtonPressed: {
+    backgroundColor: '#5a67d8',
+    transform: [{ scale: 0.98 }],
+  },
+  
+  // AI Actions styles - Modern button design
+  aiActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 20,
+    paddingHorizontal: 4,
+  },
+  aiButton: {
+    flex: 1,
+    backgroundColor: '#667eea',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    minHeight: 80,
+  },
+  aiButtonPressed: {
+    backgroundColor: '#5a67d8',
+    transform: [{ scale: 0.98 }],
+  },
+  aiButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  aiButtonIcon: {
+    fontSize: 24,
+    color: '#ffffff',
+    marginBottom: 8,
+  },
+  
+  // Portfolio preview styles
+  portfolioPreview: {
+    backgroundColor: theme.surface,
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  portfolioTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.textPrimary,
+    marginBottom: 8,
+  },
+  portfolioMetrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  portfolioMetric: {
+    alignItems: 'center',
+  },
+  portfolioMetricLabel: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginBottom: 4,
+  },
+  portfolioMetricValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.textPrimary,
+  },
+  
+  // Saved portfolios styles
+  savedPortfolios: {
+    marginTop: 16,
+  },
+  savedPortfoliosTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.textPrimary,
+    marginBottom: 12,
+  },
+  savedPortfolioItem: {
+    backgroundColor: theme.surface,
+    padding: 12,
+    marginRight: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    minWidth: 150,
+  },
+  savedPortfolioName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.textPrimary,
+    marginBottom: 4,
+  },
+  savedPortfolioReturn: {
+    fontSize: 12,
+    color: theme.success,
+    marginBottom: 2,
+  },
+  savedPortfolioRisk: {
+    fontSize: 12,
+    color: theme.textSecondary,
+  },
+  
+  // AI System Status styles
+  aiSystemStatus: {
+    backgroundColor: theme.surface,
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  aiSystemStatusTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.textPrimary,
+    marginBottom: 12,
+  },
+  aiSystemMetrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  aiSystemMetric: {
+    alignItems: 'center',
+  },
+  aiSystemMetricLabel: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginBottom: 4,
+  },
+  aiSystemMetricValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.textPrimary,
+  },
+  
+  // Empty state styles - Better visual design
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyIcon: {
+    fontSize: 64,
+    color: '#667eea',
+    marginBottom: 24,
+    opacity: 0.6,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  emptySubText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  
+  // Loading styles - Enhanced design
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  loadingIndicator: {
+    marginBottom: 24,
+  },
+  loadingText: {
+    fontSize: 18,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 16,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  loadingSubText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.5)',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  
+  // Error styles - Professional error design
+  errorContainer: {
+    backgroundColor: 'rgba(255, 71, 87, 0.1)',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 71, 87, 0.3)',
+    shadowColor: '#ff4757',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  errorIcon: {
+    fontSize: 24,
+    color: '#ff4757',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  errorText: {
+    color: '#ff4757',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  errorSubText: {
+    color: 'rgba(255, 71, 87, 0.7)',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  
+  // Modern Advanced AI Styles - Professional design
+  advancedContainer: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#0a0a0a',
+  },
+  gradientCard: {
+    borderRadius: 28,
+    padding: 28,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+  },
+  cardHeader: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  cardTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#ffffff',
+    textAlign: 'center',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  cardSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  modelGrid: {
+    paddingHorizontal: 12,
+    paddingVertical: 16,
+  },
+  modelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    paddingHorizontal: 8,
+  },
+  modelCard: {
+    width: (screenWidth - 80) / 3,
+    height: (screenWidth - 80) / 3,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 16,
+    marginHorizontal: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modelCardActive: {
+    shadowColor: '#667eea',
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 24,
+    transform: [{ scale: 1.05 }],
+    borderColor: '#667eea',
+    borderWidth: 2,
+  },
+  modelCardGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modelIcon: {
+    fontSize: 36,
+    marginBottom: 12,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  modelTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 6,
+    textAlign: 'center',
+    letterSpacing: 0.2,
+  },
+  modelDescription: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    lineHeight: 14,
+    fontWeight: '500',
+  },
+  resultsCard: {
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  resultsTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 20,
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+  resultItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  resultSymbol: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  resultValue: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '500',
+  },
+  tabContent: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  
+  // Additional professional styles
+  floatingActionButton: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 16,
+    zIndex: 1000,
+  },
+  floatingActionButtonIcon: {
+    fontSize: 28,
+    color: '#ffffff',
+  },
+  
+  // Professional navigation styles
+  navigationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    backgroundColor: '#0f0f0f',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  navigationButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  navigationButtonActive: {
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+  },
+  navigationButtonText: {
+    fontSize: 12,
+    color: '#a0a0a0',
+    fontWeight: '500',
+    marginTop: 4,
+  },
+  navigationButtonTextActive: {
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  
+  // Pull to refresh styles
+  refreshIndicator: {
+    tintColor: '#667eea',
+  },
+  
+  // Professional list styles
+  listContainer: {
+    paddingVertical: 8,
+  },
+  listSeparator: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    marginVertical: 8,
+  },
+  
+  // Badge styles
+  badge: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  
+  // Tooltip styles
+  tooltip: {
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    position: 'absolute',
+    zIndex: 1000,
+  },
+  tooltipText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '500',
+  },
+  
+  // Estilos adicionales para el tab Analysis
+  scrollContainer: {
+    flex: 1,
+    paddingHorizontal: 4,
+  },
+  subsectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#667eea',
+    marginBottom: 12,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  
+  // Estilo para el contenido del modal detallado
+  detailedAnalysisSectionContent: {
+    fontSize: 14,
+    color: '#ffffff',
+    lineHeight: 20,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+});
