@@ -184,24 +184,13 @@ const TradingScreenNew: React.FC = () => {
     } catch (error) {
       console.error('⚠️ Error loading real market data:', error);
       
-      // Fallback to basic opportunities if real data fails
-      const fallbackOpportunities: MarketOpportunity[] = [
-        {
-          id: '1',
-          symbol: 'BTC',
-          name: 'Bitcoin',
-          currentPrice: 97500,
-          predictedPrice: 105000,
-          confidence: 85,
-          timeframe: '1-2 weeks',
-          analysis: 'Market data temporarily unavailable - using cached analysis',
-          type: 'breakout',
-          expectedReturn: 7.7,
-          riskScore: 25,
-          autoExecuted: false
-        }
-      ];
-      setOpportunities(fallbackOpportunities);
+      // No fallback data - only real APIs
+      setOpportunities([]);
+      Alert.alert(
+        'Market Data Error',
+        'Unable to load market data from real APIs. Please check your connection and try again.',
+        [{ text: 'OK' }]
+      );
     } finally {
       setIsLoading(false);
     }

@@ -264,7 +264,7 @@ class RealGemAnalyzer {
     return [
       // Top Cryptocurrencies
       'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink',
-      'avalanche-2', 'polygon', 'uniswap', 'arbitrum', 'optimism', 'sui',
+      'avalanche', 'polygon', 'uniswap', 'arbitrum', 'optimism', 'sui',
       'render-token', 'injective-protocol', 'ocean-protocol', 'fetch-ai',
       
       // Top Stocks
@@ -564,7 +564,7 @@ class RealGemAnalyzer {
       'solana': 'Solana',
       'polkadot': 'Polkadot',
       'chainlink': 'Chainlink',
-      'avalanche-2': 'Avalanche',
+      'avalanche': 'Avalanche',
       'polygon': 'Polygon',
       'uniswap': 'Uniswap',
       'arbitrum': 'Arbitrum',

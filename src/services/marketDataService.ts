@@ -128,7 +128,7 @@ export const getTrendingAssets = async (): Promise<Asset[]> => {
     // Lista curada de proyectos legítimos y novedosos (puedes actualizarla con nuevos proyectos)
     const trendingSymbols = [
       // Crypto: solo proyectos con tecnología reconocida y volumen relevante
-      'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche-2', 'injective-protocol', 'ocean-protocol', 'uniswap', 'render-token',
+      'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche', 'injective-protocol', 'ocean-protocol', 'uniswap', 'render-token',
       // Stocks: solo empresas tecnológicas top y emergentes
       'AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA', 'AMD', 'NFLX', 'META', 'AMZN'
     ];
@@ -155,7 +155,7 @@ export const getMarketSummary = async (): Promise<{
 }> => {
   try {
     const majorSymbols = [
-      'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche-2', 'injective-protocol', 'ocean-protocol', 'uniswap', 'render-token',
+      'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche', 'injective-protocol', 'ocean-protocol', 'uniswap', 'render-token',
       'AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA', 'AMD', 'NFLX', 'META', 'AMZN'
     ];
     const assets = await fetchMultipleAssets(majorSymbols);

@@ -1,5 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export interface MarketData {
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  marketCap: number;
+  type: 'crypto' | 'stock';
+  lastUpdated: number;
+  source?: 'real' | 'cache';
+}
+
 import { API_CONFIG, checkAPIConfiguration } from '../config/apiConfig';
+import { apiKeyManager } from './apiKeyRotationManager';
 import { InputValidator } from '../utils/inputValidator';
 import { withCacheLock } from '../utils/mutex';
 import { CircuitBreakerFactory } from '../utils/circuitBreaker';
@@ -7,8 +21,9 @@ import { deduplicateApiRequest } from '../utils/requestDeduplicator';
 import { apiLogger } from '../utils/logger';
 import { apiRateLimiters, checkRateLimit, RateLimitResult } from '../utils/rateLimiter';
 
-export interface MarketData {
+export interface RealGemSearchResult {
   symbol: string;
+  name: string;
   price: number;
   change: number;
   changePercent: number;
@@ -16,7 +31,7 @@ export interface MarketData {
   marketCap?: number;
   type: 'stock' | 'crypto';
   lastUpdated: number;
-  source?: 'real' | 'cache' | 'fallback';
+  source?: 'real' | 'cache';
 }
 
 export interface GemData {
@@ -220,68 +235,22 @@ class RealDataService {
     // Lista extendida de símbolos crypto conocidos (IDs de CoinGecko)
     const cryptoIds = [
       'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 
-      'polygon', 'avalanche-2', 'injective-protocol', 'oasis-network',
+      'avalanche', 'injective-protocol', 'oasis-network',
       'fantom', 'ocean-protocol', 'thorchain', 'kava', 'celer-network',
       'ren', 'band-protocol', 'ankr'
     ];
     
-    const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'DOT', 'AVAX', 'LINK', 'UNI'];
+    const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI'];
     
     return cryptoIds.includes(symbol.toLowerCase()) || 
            cryptoSymbols.some(crypto => symbol.toUpperCase().includes(crypto)) ? 'crypto' : 'stock';
   }
 
-  // Generar datos fallback realistas basados en datos históricos
-  private generateFallbackData(symbol: string): MarketData {
-    // Usar precios base más realistas dependiendo del tipo de activo
-    const isStock = this.getAssetType(symbol) === 'stock';
-    
-    let basePrice: number;
-    let volumeRange: [number, number];
-    let marketCapRange: [number, number];
-    
-    if (isStock) {
-      // Precios típicos de acciones ($10-$500)
-      basePrice = Math.random() * 490 + 10;
-      volumeRange = [100000, 50000000]; // 100K - 50M
-      marketCapRange = [1000000000, 1000000000000]; // $1B - $1T
-    } else {
-      // Precios típicos de crypto (más variables)
-      if (symbol.toLowerCase().includes('bitcoin') || symbol.toLowerCase().includes('btc')) {
-        basePrice = 40000 + Math.random() * 30000; // $40K-$70K range for BTC
-      } else if (symbol.toLowerCase().includes('ethereum') || symbol.toLowerCase().includes('eth')) {
-        basePrice = 2000 + Math.random() * 2000; // $2K-$4K range for ETH
-      } else {
-        basePrice = Math.random() * 100 + 0.01; // $0.01-$100 for altcoins
-      }
-      volumeRange = [1000000, 100000000]; // $1M - $100M
-      marketCapRange = [1000000, 500000000000]; // $1M - $500B
-    }
-    
-    const changePercent = (Math.random() - 0.5) * 15; // -7.5% a +7.5% (más realista)
-    const change = this.roundNumber(basePrice * (changePercent / 100));
-    const volume = Math.floor(Math.random() * (volumeRange[1] - volumeRange[0]) + volumeRange[0]);
-    const marketCap = Math.floor(Math.random() * (marketCapRange[1] - marketCapRange[0]) + marketCapRange[0]);
-    
-    return {
-      symbol,
-      price: this.roundNumber(basePrice),
-      change: this.roundNumber(change),
-      changePercent: this.roundNumber(changePercent),
-      volume,
-      marketCap,
-      type: this.getAssetType(symbol),
-      lastUpdated: Date.now(),
-      source: 'fallback'
-    };
-  }
-
-  // Intentar obtener datos reales con múltiples fallbacks
+  // Remove fallback data generation - only use real APIs
   private async fetchRealData(symbol: string): Promise<MarketData> {
-    // Si estamos en rate limit, usar directamente fallbacks
+    // Check rate limits
     if (this.isRateLimited()) {
-      console.log(`Rate limit active, using fallback for ${symbol}`);
-      return this.generateFallbackData(symbol);
+      throw new Error(`Rate limit active for ${symbol}. Please try again later.`);
     }
 
     try {
@@ -307,7 +276,7 @@ class RealDataService {
       
       if (error.message === 'Rate limit exceeded') {
         this.activateRateLimit(); // Activar rate limit por 1 minuto
-        return this.generateFallbackData(symbol);
+        throw new Error(`Rate limit exceeded for ${symbol}. Please try again later.`);
       }
       
       if (this.retryCount < this.maxRetries) {
@@ -318,9 +287,9 @@ class RealDataService {
       }
     }
 
-    // Si todo falla, usar datos de fallback realistas
+    // If all APIs fail, throw error - no fallback data
     this.retryCount = 0;
-    return this.generateFallbackData(symbol);
+    throw new Error(`Failed to fetch real data for ${symbol} from all APIs.`);
   }
 
   // Obtener datos de stock con manejo de errores mejorado y APIs reales
@@ -346,10 +315,10 @@ class RealDataService {
       }
     }
 
-    // Check if we should fallback immediately
+    // Check if we should fail immediately
     if (!this.apiStatus.canUseStocks) {
-      apiLogger.info('Using fallback data - no stock APIs configured', { symbol });
-      return this.generateFallbackData(symbol);
+      apiLogger.info('No stock APIs configured', { symbol });
+      throw new Error(`No stock APIs configured for ${symbol}`);
     }
 
     // Use request deduplication
@@ -363,13 +332,21 @@ class RealDataService {
         try {
           apiLogger.debug('Fetching stock data', { symbol });
           
-          // Try Alpha Vantage first (if configured)
-          if (API_CONFIG.ALPHA_VANTAGE.API_KEY && API_CONFIG.ALPHA_VANTAGE.API_KEY !== 'demo' && API_CONFIG.ALPHA_VANTAGE.API_KEY !== 'YOUR_ALPHA_VANTAGE_API_KEY') {
-            return await this.alphaVantageBreaker.execute(async () => {
+          // Try Alpha Vantage with automatic key rotation
+          return await this.alphaVantageBreaker.execute(async () => {
+            let lastError: Error | null = null;
+            let attemptCount = 0;
+            let currentApiKey = '';
+            const maxAttempts = 3; // Try up to 3 different keys
+            
+            while (attemptCount < maxAttempts) {
               try {
-                const url = `${API_CONFIG.ALPHA_VANTAGE.BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${API_CONFIG.ALPHA_VANTAGE.API_KEY}`;
+                // Get current API key from rotation manager
+                currentApiKey = apiKeyManager.getCurrentAlphaVantageKey();
+                const url = `${API_CONFIG.ALPHA_VANTAGE.BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${currentApiKey}`;
                 
-                apiLogger.apiRequest('GET', url, { symbol });
+                console.log(`🔑 Using Alpha Vantage API Key: ${currentApiKey.substring(0, 8)}...`);
+                apiLogger.apiRequest('GET', url, { symbol, keyUsed: currentApiKey.substring(0, 8) });
                 const startTime = Date.now();
                 
                 const response = await fetch(url, { signal: controller.signal });
@@ -378,15 +355,30 @@ class RealDataService {
                 apiLogger.apiResponse('GET', url, response.status, duration, { symbol });
 
                 if (response.status === 429) {
-                  throw new Error('Rate limit exceeded');
+                  const errorMsg = 'Rate limit exceeded';
+                  await apiKeyManager.recordAPIRequest(false, errorMsg);
+                  throw new Error(errorMsg);
                 }
-
                 if (response.ok) {
                   const data = await response.json();
+                  
+                  // Check for API errors in response
+                  if (data['Error Message']) {
+                    const errorMsg = `API Error: ${data['Error Message']}`;
+                    await apiKeyManager.recordAPIRequest(false, errorMsg);
+                    throw new Error(errorMsg);
+                  }
+                  
+                  if (data['Note'] && data['Note'].includes('rate limit')) {
+                    const errorMsg = 'Rate limit exceeded';
+                    await apiKeyManager.recordAPIRequest(false, errorMsg);
+                    throw new Error(errorMsg);
+                  }
+                  
                   const quote = data['Global Quote'];
                   
                   if (quote && quote['05. price']) {
-                    console.log(`🔍 Alpha Vantage Raw Data for ${symbol}:`, quote);
+                    console.log(`🔍 Alpha Vantage Raw Data for ${symbol} with key ${currentApiKey.substring(0, 8)}:`, quote);
                     
                     const price = parseFloat(quote['05. price']);
                     const change = parseFloat(quote['09. change']);
@@ -398,24 +390,50 @@ class RealDataService {
                       change: parseFloat(change.toFixed(2)),
                       changePercent: parseFloat(changePercent.toFixed(2)),
                       volume: parseInt(quote['06. volume']) || 0,
+                      marketCap: 0, // Not available from Alpha Vantage quotes
                       type: 'stock',
                       lastUpdated: Date.now(),
                       source: 'real'
                     };
                     
+                    // Record successful request
+                    await apiKeyManager.recordAPIRequest(true);
+                    
                     console.log(`✅ Alpha Vantage processed data for ${symbol}:`, marketData);
-                    apiLogger.info('Real stock data fetched from Alpha Vantage', { symbol });
+                    apiLogger.info('Real stock data fetched from Alpha Vantage', { symbol, keyUsed: currentApiKey.substring(0, 8) });
                     return marketData;
                   } else {
                     console.warn(`⚠️ Alpha Vantage: No price data for ${symbol}`, data);
+                    throw new Error('No price data available');
                   }
+                } else {
+                  throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-              } catch (alphaError) {
-                apiLogger.warn('Alpha Vantage failed', { symbol, error: alphaError as Error });
-                throw alphaError;
+                
+              } catch (attemptError) {
+                lastError = attemptError as Error;
+                attemptCount++;
+                
+                console.warn(`❌ Attempt ${attemptCount} failed with key ${currentApiKey.substring(0, 8)}:`, attemptError);
+                
+                // Record the failed request
+                await apiKeyManager.recordAPIRequest(false, lastError.message);
+                
+                // If rate limited or quota exceeded, try next key
+                if (lastError.message.includes('rate limit') || lastError.message.includes('quota') || lastError.message.includes('limit exceeded')) {
+                  console.log(`🔄 Rotating to next available API key...`);
+                  // The rotation manager will automatically find the next available key
+                  continue;
+                }
+                
+                // For other errors, break the loop
+                break;
               }
-            });
-          }
+            }
+            
+            // If all attempts failed, throw the last error
+            throw lastError || new Error('All API key attempts exhausted');
+          });
 
           // Try Yahoo Finance as fallback
           return await this.yahooBreaker.execute(async () => {
@@ -451,6 +469,7 @@ class RealDataService {
                     change: parseFloat(change.toFixed(2)),
                     changePercent: parseFloat(changePercent.toFixed(2)),
                     volume: meta.regularMarketVolume || 0,
+                    marketCap: meta.marketCap || 0, // Use market cap from Yahoo if available
                     type: 'stock',
                     lastUpdated: Date.now(),
                     source: 'real'
@@ -474,9 +493,9 @@ class RealDataService {
         } catch (error) {
           apiLogger.error('All stock APIs failed', { symbol, error: error as Error });
           
-          // Fallback to generated data
-          apiLogger.info('Falling back to generated data for stock', { symbol });
-          return this.generateFallbackData(symbol);
+          // No fallback data - throw error
+          apiLogger.info('All APIs failed for stock', { symbol });
+          throw new Error(`Failed to fetch real data for stock ${symbol}`);
         } finally {
           clearTimeout(timeoutId);
         }
@@ -581,7 +600,7 @@ class RealDataService {
     const knownCoinGeckoIds = [
       'bitcoin', 'ethereum', 'solana', 'cardano', 'polkadot', 
       'avalanche', 'chainlink', 'uniswap', 'injective-protocol',
-      'fantom', 'thorchain', 'kava', 'ankr', 'polygon',
+      'fantom', 'thorchain', 'kava', 'ankr',
       'oasis-network', 'ocean-protocol', 'celer-network',
       'ren', 'band-protocol', 'render-token'
     ];
@@ -653,8 +672,8 @@ class RealDataService {
         return { ...extendedCached, source: 'cache' };
       }
       
-      // 6. Generar datos como último recurso
-      return this.generateFallbackData(symbol);
+      // 6. No fallback data - throw error
+      throw new Error(`Unable to fetch real data for ${symbol}. All APIs failed.`);
     }
   }
 
@@ -681,19 +700,10 @@ class RealDataService {
     // 2. Si no hay cache válido o está vencido, obtener datos frescos
     console.log('🔄 Refreshing batch cache with fresh data...');
     
-    // Si estamos en rate limit, usar datos de fallback para todo el batch
+    // Si estamos en rate limit, fail immediately
     if (this.isRateLimited()) {
-      console.log('Rate limit active, using fallback data for batch request');
-      const fallbackDataMap = new Map<string, MarketData>();
-      const results = symbols.map(symbol => {
-        const marketData = this.generateFallbackData(symbol);
-        fallbackDataMap.set(symbol, marketData);
-        return marketData;
-      });
-      
-      // Guardar fallback data en cache batch
-      await this.setBatchCachedData(fallbackDataMap);
-      return results;
+      console.log('Rate limit active, cannot fetch batch data');
+      throw new Error('Rate limit active. Cannot fetch batch market data. Please try again later.');
     }
     
     // 3. Obtener datos reales para todos los símbolos
@@ -707,9 +717,8 @@ class RealDataService {
         results.push(data);
       } catch (error) {
         console.warn(`Failed to get fresh data for ${symbol}:`, error);
-        const fallbackData = this.generateFallbackData(symbol);
-        freshDataMap.set(symbol, fallbackData);
-        results.push(fallbackData);
+        // Skip symbols that fail - no fallback data
+        continue;
       }
     }
     
@@ -766,22 +775,8 @@ class RealDataService {
     } catch (error) {
       console.warn(`Error generating gem data for ${symbol}:`, error);
       
-      // Fallback completo
-      return {
-        symbol,
-        name: symbol.replace(/USD$/, ''),
-        price: this.roundNumber(Math.random() * 100),
-        change24h: this.roundNumber((Math.random() - 0.5) * 20),
-        marketCap: Math.floor(Math.random() * 1000000000),
-        volume24h: Math.floor(Math.random() * 100000000),
-        type: this.getAssetType(symbol),
-        team: Math.floor(Math.random() * 40) + 60,
-        tech: Math.floor(Math.random() * 40) + 60,
-        community: Math.floor(Math.random() * 40) + 60,
-        adoption: Math.floor(Math.random() * 40) + 60,
-        lastUpdated: Date.now(),
-        source: 'fallback'
-      };
+      // No fallback data - throw error
+      throw new Error(`Failed to generate gem data for ${symbol}: ${error.message}`);
     }
   }
 

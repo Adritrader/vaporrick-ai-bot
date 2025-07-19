@@ -801,17 +801,41 @@ export class VectorFluxService {
     
     if (totalSignals > 0) {
       const technicalConfidence = Math.max(buySignals, sellSignals) / totalSignals;
-      totalConfidence += technicalConfidence * 0.3;
+      
+      // IMPROVED: Boost confidence when there's strong consensus
+      let boostedConfidence = technicalConfidence;
+      if (technicalConfidence >= 0.8) {
+        boostedConfidence = Math.min(0.95, technicalConfidence + 0.1); // +10% for very strong signals
+      } else if (technicalConfidence >= 0.7) {
+        boostedConfidence = Math.min(0.9, technicalConfidence + 0.05); // +5% for strong signals
+      }
+      
+      totalConfidence += boostedConfidence * 0.3;
       weights += 0.3;
     }
 
     // Confianza de sentimiento
     if (sentimentData) {
-      totalConfidence += sentimentData.overall.confidence * 0.3;
+      let sentimentConfidence = sentimentData.overall.confidence;
+      
+      // IMPROVED: Boost confidence for extreme sentiment
+      if (sentimentConfidence >= 0.8) {
+        sentimentConfidence = Math.min(0.95, sentimentConfidence + 0.1);
+      }
+      
+      totalConfidence += sentimentConfidence * 0.3;
       weights += 0.3;
     }
 
-    return weights > 0 ? totalConfidence / weights : 0.5;
+    // IMPROVED: Apply final boost for high-consensus scenarios
+    const finalConfidence = weights > 0 ? totalConfidence / weights : 0.5;
+    
+    // Extra boost when all indicators align strongly
+    if (finalConfidence >= 0.75 && weights >= 0.9) {
+      return Math.min(0.95, finalConfidence + 0.05); // +5% bonus for multi-factor alignment
+    }
+    
+    return finalConfidence;
   }
 
   /**

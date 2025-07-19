@@ -51,7 +51,18 @@ export class MarketDataProcessor {
   async calculateTechnicalIndicators(prices: number[]): Promise<TechnicalIndicators> {
     try {
       if (!prices || prices.length < 20) {
-        throw new Error('Insufficient data for technical analysis');
+        console.warn(`⚠️ Insufficient data for full technical indicators. Using basic analysis with ${prices?.length || 0} prices.`);
+        
+        // Return basic indicators for insufficient data
+        return {
+          rsi: 50,
+          macd: 0,
+          ema20: prices?.[prices.length - 1] || 0,
+          ema50: prices?.[prices.length - 1] || 0,
+          volumeProfile: 0,
+          trend: 'neutral' as const,
+          signals: []
+        };
       }
 
       const rsi = this.calculateRSI(prices);

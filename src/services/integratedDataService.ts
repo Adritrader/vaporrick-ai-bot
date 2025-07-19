@@ -261,7 +261,7 @@ class IntegratedDataService {
       await this.cleanIncorrectData();
       
       // Get fresh data from API/generation - better mix of crypto and stocks with proper validation
-      const validCryptoSymbols = ['solana', 'cardano', 'polkadot', 'polygon-matic', 'avalanche-2', 'chainlink', 'uniswap'];
+      const validCryptoSymbols = ['solana', 'cardano', 'polkadot', 'polygon-matic', 'avalanche', 'chainlink', 'uniswap'];
       const validStockSymbols = ['PLTR', 'RBLX', 'HOOD', 'SOFI', 'ROKU', 'NET', 'CRSP'];
       const symbols = [...validCryptoSymbols, ...validStockSymbols];
       
@@ -752,7 +752,7 @@ class IntegratedDataService {
     // CoinGecko ID patterns
     const coinGeckoPatterns = [
       // Exact known CoinGecko IDs
-      /^(bitcoin|ethereum|cardano|solana|polkadot|polygon-matic|avalanche-2|chainlink|uniswap)$/i,
+      /^(bitcoin|ethereum|cardano|solana|polkadot|polygon-matic|avalanche|chainlink|uniswap)$/i,
       /^(injective-protocol|oasis-network|fantom|ocean-protocol|thorchain|kava|celer-network)$/i,
       /^(ren|band-protocol|ankr|render-token|cosmos|near|filecoin|algorand|vechain)$/i,
       // CoinGecko pattern: lowercase with dashes, possible numbers
@@ -784,7 +784,7 @@ class IntegratedDataService {
         // Known crypto symbols that should never be stocks
         const cryptoSymbols = [
           'bitcoin', 'ethereum', 'solana', 'cardano', 'polkadot', 'polygon-matic',
-          'avalanche-2', 'chainlink', 'uniswap', 'injective-protocol', 'oasis-network',
+          'avalanche', 'chainlink', 'uniswap', 'injective-protocol', 'oasis-network',
           'fantom', 'ocean-protocol', 'thorchain', 'kava', 'celer-network',
           'ren', 'band-protocol', 'ankr', 'render-token', 'near-protocol'
         ];

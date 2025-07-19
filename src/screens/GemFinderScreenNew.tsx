@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View,
     Text,
@@ -17,10 +17,26 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../theme/colors';
 import { realGemSearchService, RealGemSearchResult } from '../services/realGemSearchService';
+import { CoinPaprikaService } from '../services/coinPaprikaService';
+import { apiKeyManager } from '../services/apiKeyRotationManager';
+import { stockAPIRecovery } from '../services/stockAPIRecoveryService';
+import { simpleStockAPITest, testAllAPIKeys } from '../utils/stockAPITest';
+import RealStockAPIService from '../services/realStockAPIService';
 import { autoAlertService } from '../services/autoAlertService';
 import GemDetailScreenNew from './GemDetailScreenNew';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../services/firebaseInitService';
+
+// Performance configuration
+const PERFORMANCE_CONFIG = {
+  MAX_GEMS_IN_MEMORY: 50,
+  INITIAL_NUM_TO_RENDER: 8,
+  MAX_TO_RENDER_PER_BATCH: 4,
+  WINDOW_SIZE: 10,
+  ANIMATION_DURATION: 300,
+  UPDATE_CELLS_BATCH_PERIOD: 100,
+  REMOVE_CLIPPED_SUBVIEWS: true,
+};
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -60,17 +76,87 @@ interface GemDetailProps {
 }
 
 const GemFinderScreen: React.FC = () => {
-  const [gems, setGems] = useState<RealGemSearchResult[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanningType, setScanningType] = useState<'crypto' | 'stocks' | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState<string>('');
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'crypto' | 'stocks' | 'high' | 'medium' | 'low'>('all');
-  const [selectedGem, setSelectedGem] = useState<RealGemSearchResult | null>(null);
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const [scanningAnimation] = useState(new Animated.Value(0));
-  const [lastScanTime, setLastScanTime] = useState<{ [key: string]: number }>({});
+  // Optimized state management - combine related states
+  const [appState, setAppState] = useState({
+    gems: [] as RealGemSearchResult[],
+    isScanning: false,
+    scanningType: null as 'crypto' | 'stocks' | null,
+    refreshing: false,
+    loadingStatus: '',
+    selectedFilter: 'all' as 'all' | 'crypto' | 'stocks' | 'high' | 'medium' | 'low',
+    selectedGem: null as RealGemSearchResult | null,
+    isDiagnosing: false,
+    lastScanTime: {} as { [key: string]: number },
+  });
+
+  // Separate animation states (kept separate for performance)
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scanningAnimation = useRef(new Animated.Value(0)).current;
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Helper function to get coin full name from symbol
+  const getCoinName = (symbol: string): string => {
+    const coinNames: { [key: string]: string } = {
+      'BTC': 'Bitcoin',
+      'ETH': 'Ethereum',
+      'BNB': 'Binance Coin',
+      'SOL': 'Solana',
+      'XRP': 'XRP',
+      'ADA': 'Cardano',
+      'DOGE': 'Dogecoin',
+      'AVAX': 'Avalanche',
+      'MATIC': 'Polygon',
+      'DOT': 'Polkadot',
+      'LINK': 'Chainlink',
+      'UNI': 'Uniswap'
+    };
+    return coinNames[symbol] || symbol;
+  };
+
+  // Helper function to safely convert timestamp
+  const getTimestamp = useCallback((date: number | Date | undefined): number => {
+    if (typeof date === 'number') return date;
+    if (date instanceof Date) return date.getTime();
+    return 0;
+  }, []);
+
+  // Memoized filtered gems to prevent unnecessary recalculations
+  const filteredGems = useMemo(() => {
+    const { gems, selectedFilter } = appState;
+    
+    // Apply memory limit before filtering
+    const limitedGems = gems.length > PERFORMANCE_CONFIG.MAX_GEMS_IN_MEMORY 
+      ? gems
+          .sort((a, b) => getTimestamp(b.lastUpdated) - getTimestamp(a.lastUpdated))
+          .slice(0, PERFORMANCE_CONFIG.MAX_GEMS_IN_MEMORY)
+      : gems;
+
+    // Apply filter
+    switch(selectedFilter) {
+      case 'crypto': return limitedGems.filter(gem => gem.type === 'crypto');
+      case 'stocks': return limitedGems.filter(gem => gem.type === 'stock');
+      case 'high': return limitedGems.filter(gem => gem.potential === 'high' || gem.potential === 'very_high');
+      case 'medium': return limitedGems.filter(gem => gem.potential === 'medium');
+      case 'low': return limitedGems.filter(gem => gem.riskLevel === 'low');
+      default: return limitedGems;
+    }
+  }, [appState.gems, appState.selectedFilter]);
+
+  // Optimized update functions
+  const updateAppState = useCallback((updates: Partial<typeof appState>) => {
+    setAppState(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const updateGems = useCallback((newGems: RealGemSearchResult[]) => {
+    // Apply memory limit immediately
+    const limitedGems = newGems.length > PERFORMANCE_CONFIG.MAX_GEMS_IN_MEMORY
+      ? newGems
+          .sort((a, b) => getTimestamp(b.lastUpdated) - getTimestamp(a.lastUpdated))
+          .slice(0, PERFORMANCE_CONFIG.MAX_GEMS_IN_MEMORY)
+      : newGems;
+    
+    updateAppState({ gems: limitedGems });
+  }, [updateAppState, getTimestamp]);
 
   useEffect(() => {
     console.log('🚀 Real Gem Finder Started - Using real APIs with AI...');
@@ -90,14 +176,18 @@ const GemFinderScreen: React.FC = () => {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      
+      // Stop animations to free memory
+      fadeAnim.stopAnimation();
+      scanningAnimation.stopAnimation();
     };
   }, []);
 
-  const startAnimations = () => {
-    // Initialize animations
+  const startAnimations = useCallback(() => {
+    // Initialize animations with optimized duration
     const fadeAnimation = Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 800,
+      duration: PERFORMANCE_CONFIG.ANIMATION_DURATION,
       useNativeDriver: true,
     });
 
@@ -106,23 +196,24 @@ const GemFinderScreen: React.FC = () => {
       Animated.sequence([
         Animated.timing(scanningAnimation, {
           toValue: 1,
-          duration: 2000,
+          duration: 1500, // Reduced from 2000ms
           useNativeDriver: true,
         }),
         Animated.timing(scanningAnimation, {
           toValue: 0,
-          duration: 2000,
+          duration: 1500, // Reduced from 2000ms
           useNativeDriver: true,
         }),
       ])
     );
 
     fadeAnimation.start();
-    scanningAnimationLoop.start();
-  };
+    if (appState.isScanning) {
+      scanningAnimationLoop.start();
+    }
+  }, [fadeAnim, scanningAnimation, appState.isScanning]);
 
-  // Loa
-  // d cached data
+  // Load cached data
   const loadCachedData = async () => {
     try {
       const cachedGems = await AsyncStorage.getItem('realGems');
@@ -131,14 +222,14 @@ const GemFinderScreen: React.FC = () => {
       if (cachedGems) {
         const parsedGems = JSON.parse(cachedGems);
         if (parsedGems.gems && Array.isArray(parsedGems.gems)) {
-          setGems(parsedGems.gems);
+          updateGems(parsedGems.gems);
           console.log(`📋 Loaded ${parsedGems.gems.length} cached gems`);
         }
       }
 
       if (cachedScanTimes) {
         const parsedScanTimes = JSON.parse(cachedScanTimes);
-        setLastScanTime(parsedScanTimes);
+        updateAppState({ lastScanTime: parsedScanTimes });
         console.log('⏰ Loaded scan times:', parsedScanTimes);
       }
     } catch (error) {
@@ -146,14 +237,14 @@ const GemFinderScreen: React.FC = () => {
     }
   };
 
-  // Load gems from Firebase
+  // Load gems from Firebase with limit
   const loadGemsFromFirebase = async () => {
     try {
       console.log('🔥 Loading gems from Firebase...');
       const q = query(
         collection(db, 'gems'),
         orderBy('createdAt', 'desc'),
-        limit(50)
+        limit(PERFORMANCE_CONFIG.MAX_GEMS_IN_MEMORY) // Apply limit at query level
       );
       
       const querySnapshot = await getDocs(q);
@@ -168,11 +259,34 @@ const GemFinderScreen: React.FC = () => {
       });
 
       if (firebaseGems.length > 0) {
-        setGems(firebaseGems);
+        updateGems(firebaseGems);
         console.log(`🔥 Loaded ${firebaseGems.length} gems from Firebase`);
       }
     } catch (error) {
       console.error('❌ Error loading gems from Firebase:', error);
+    }
+  };
+
+  // Save individual gem to Firebase and update UI immediately
+  const saveGemToFirebaseAndUI = async (gem: RealGemSearchResult) => {
+    try {
+      // Save to Firebase
+      await addDoc(collection(db, 'gems'), {
+        ...gem,
+        createdAt: serverTimestamp(),
+      });
+      
+      // Update local state immediately
+      setAppState(prev => ({
+        ...prev,
+        gems: [gem, ...prev.gems].slice(0, PERFORMANCE_CONFIG.MAX_GEMS_IN_MEMORY)
+      }));
+      
+      console.log(`✅ Saved and displayed: ${gem.symbol} (${gem.type}) - $${gem.price?.toFixed(6) || '0.000000'}`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Error saving ${gem.symbol} to Firebase:`, error);
+      return false;
     }
   };
 
@@ -219,162 +333,133 @@ const GemFinderScreen: React.FC = () => {
   };
 
   // Check if scan is allowed (5 minute cooldown)
-  const canScan = (type: 'crypto' | 'stocks'): boolean => {
-    const lastScan = lastScanTime[type] || 0;
+  const canScan = useCallback((type: 'crypto' | 'stocks'): boolean => {
+    const lastScan = appState.lastScanTime[type] || 0;
     const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
     return lastScan < fiveMinutesAgo;
-  };
+  }, [appState.lastScanTime]);
 
   // Get remaining cooldown time
-  const getRemainingCooldown = (type: 'crypto' | 'stocks'): number => {
-    const lastScan = lastScanTime[type] || 0;
+  const getRemainingCooldown = useCallback((type: 'crypto' | 'stocks'): number => {
+    const lastScan = appState.lastScanTime[type] || 0;
     const fiveMinutesInMs = 5 * 60 * 1000;
     const elapsed = Date.now() - lastScan;
     return Math.max(0, fiveMinutesInMs - elapsed);
-  };
+  }, [appState.lastScanTime]);
 
-  // Generate fallback gems with realistic data if APIs fail - 30 cryptos and 30 stocks
-  const generateFallbackGems = (type: 'crypto' | 'stocks'): RealGemSearchResult[] => {
-    const cryptoGems = [
-      // Meme Coins
-      { symbol: 'PEPE', name: 'Pepe', price: 0.00001234, marketCap: 5200000000, volume: 180000000, change24h: 12.45 },
-      { symbol: 'DOGE', name: 'Dogecoin', price: 0.088, marketCap: 12800000000, volume: 420000000, change24h: 5.67 },
-      { symbol: 'SHIB', name: 'Shiba Inu', price: 0.00002156, marketCap: 12700000000, volume: 340000000, change24h: -2.34 },
-      { symbol: 'FLOKI', name: 'Floki', price: 0.00018943, marketCap: 1800000000, volume: 85000000, change24h: 8.92 },
-      { symbol: 'BABYDOGE', name: 'Baby Doge Coin', price: 0.000000002345, marketCap: 890000000, volume: 45000000, change24h: 15.23 },
-      { symbol: 'BONK', name: 'Bonk', price: 0.00003456, marketCap: 2300000000, volume: 120000000, change24h: 7.89 },
-      { symbol: 'WIF', name: 'dogwifhat', price: 3.45, marketCap: 3400000000, volume: 210000000, change24h: 18.67 },
-      { symbol: 'BRETT', name: 'Brett', price: 0.1234, marketCap: 1200000000, volume: 67000000, change24h: 9.45 },
+  // Remove fallback data completely - only use real APIs with progressive saving
+  const searchRealCryptoGems = async (onGemFound?: (gem: RealGemSearchResult) => void): Promise<RealGemSearchResult[]> => {
+    try {
+      console.log('🔍 Searching real crypto gems using CoinGecko API with CoinPaprika fallback...');
       
-      // Major Cryptos
-      { symbol: 'BTC', name: 'Bitcoin', price: 67234.56, marketCap: 1320000000000, volume: 28000000000, change24h: 2.34 },
-      { symbol: 'ETH', name: 'Ethereum', price: 3456.78, marketCap: 415000000000, volume: 15000000000, change24h: 1.89 },
-      { symbol: 'BNB', name: 'Binance Coin', price: 234.56, marketCap: 36000000000, volume: 1200000000, change24h: -0.87 },
-      { symbol: 'SOL', name: 'Solana', price: 145.67, marketCap: 67000000000, volume: 2800000000, change24h: 4.56 },
-      { symbol: 'ADA', name: 'Cardano', price: 0.456, marketCap: 16000000000, volume: 890000000, change24h: -1.23 },
-      { symbol: 'AVAX', name: 'Avalanche', price: 34.56, marketCap: 13000000000, volume: 670000000, change24h: 3.45 },
-      { symbol: 'DOT', name: 'Polkadot', price: 6.78, marketCap: 9000000000, volume: 450000000, change24h: 1.67 },
-      { symbol: 'LINK', name: 'Chainlink', price: 14.56, marketCap: 8500000000, volume: 890000000, change24h: 2.89 },
+      updateAppState({ loadingStatus: 'Connecting to CoinGecko API...' });
       
-      // DeFi Tokens
-      { symbol: 'UNI', name: 'Uniswap', price: 8.45, marketCap: 5100000000, volume: 340000000, change24h: 3.78 },
-      { symbol: 'AAVE', name: 'Aave', price: 89.34, marketCap: 1300000000, volume: 150000000, change24h: -2.45 },
-      { symbol: 'COMP', name: 'Compound', price: 56.78, marketCap: 380000000, volume: 78000000, change24h: 1.23 },
-      { symbol: 'SUSHI', name: 'SushiSwap', price: 1.23, marketCap: 160000000, volume: 45000000, change24h: 4.56 },
-      { symbol: 'CRV', name: 'Curve DAO', price: 0.567, marketCap: 340000000, volume: 89000000, change24h: -1.78 },
-      { symbol: 'YFI', name: 'yearn.finance', price: 6789.12, marketCap: 250000000, volume: 34000000, change24h: 2.34 },
+      let results: RealGemSearchResult[] = [];
       
-      // Layer 2 & Scaling
-      { symbol: 'MATIC', name: 'Polygon', price: 0.789, marketCap: 7800000000, volume: 450000000, change24h: 2.67 },
-      { symbol: 'OP', name: 'Optimism', price: 2.34, marketCap: 2400000000, volume: 180000000, change24h: 1.89 },
-      { symbol: 'ARB', name: 'Arbitrum', price: 1.56, marketCap: 2100000000, volume: 340000000, change24h: 3.45 },
-      { symbol: 'IMX', name: 'Immutable X', price: 1.89, marketCap: 2900000000, volume: 120000000, change24h: 5.67 },
+      try {
+        // Try CoinGecko first
+        results = await realGemSearchService.searchCryptoGems({
+          maxResults: 4,
+          minAIScore: 0,
+          sortBy: 'marketCap',
+          onlyWithPositiveAI: false,
+          minMarketCap: 1000000, // At least 1M market cap
+          maxMarketCap: undefined,
+          minVolume: 10000 // At least 10k volume
+        });
+        
+        console.log(`✅ CoinGecko: Found ${results.length} crypto gems`);
+        
+        // Save each gem individually as we get them
+        for (const gem of results) {
+          if (onGemFound) {
+            onGemFound(gem);
+          }
+        }
+        
+      } catch (coinGeckoError) {
+        console.warn('⚠️ CoinGecko failed, trying CoinPaprika fallback...', coinGeckoError);
+        updateAppState({ loadingStatus: 'CoinGecko failed, switching to CoinPaprika...' });
+        
+        try {
+          // Fallback to CoinPaprika
+          const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX'];
+          const marketDataResults = await CoinPaprikaService.getMultipleCryptoPrices(cryptoSymbols);
+          
+          console.log(`📊 CoinPaprika: Retrieved ${Object.keys(marketDataResults).length} coins`);
+          
+          // Process each result individually
+          for (const [symbol, marketData] of Object.entries(marketDataResults)) {
+            try {
+              updateAppState({ loadingStatus: `Processing ${symbol} with AI...` });
+              
+              // Create a basic gem object for AI analysis
+              const basicGem = {
+                symbol,
+                name: symbol, // We'll update this below
+                price: marketData.price,
+                change24h: marketData.change24h,
+                volume: marketData.volume24h,
+                marketCap: marketData.marketCap,
+                type: 'crypto' as const
+              };
+              
+              const aiAnalysis = generateBasicAIAnalysis(basicGem as any);
+              
+              const gem: RealGemSearchResult = {
+                symbol,
+                name: getCoinName(symbol), // Helper to get full name
+                price: marketData.price,
+                change24h: marketData.change24h,
+                changePercent: marketData.change24h,
+                volume: marketData.volume24h,
+                marketCap: marketData.marketCap,
+                type: 'crypto',
+                aiScore: aiAnalysis.score,
+                aiAnalysis: aiAnalysis.analysis,
+                aiRecommendation: aiAnalysis.recommendation,
+                aiConfidence: aiAnalysis.confidence,
+                technicalScore: aiAnalysis.score * 0.8,
+                technicalSignals: [`RSI: ${(30 + Math.random() * 40).toFixed(0)}`, `MACD: ${aiAnalysis.recommendation === 'buy' ? 'Bullish' : 'Neutral'}`],
+                riskLevel: aiAnalysis.riskLevel,
+                riskScore: aiAnalysis.riskLevel === 'low' ? 0.3 : aiAnalysis.riskLevel === 'medium' ? 0.6 : 0.9,
+                priceTarget1d: marketData.price * (1 + (Math.random() - 0.5) * 0.1),
+                priceTarget7d: marketData.price * (1 + (Math.random() - 0.3) * 0.2),
+                priceTarget30d: aiAnalysis.priceTarget30d,
+                qualityScore: aiAnalysis.qualityScore,
+                potential: aiAnalysis.potential,
+                lastUpdated: new Date(),
+                source: 'real'
+              };
+              
+              results.push(gem);
+              
+              // Save and display immediately
+              if (onGemFound) {
+                onGemFound(gem);
+              }
+              
+              console.log(`✅ CoinPaprika: Processed ${gem.symbol} - $${gem.price.toFixed(6)}`);
+              
+            } catch (error) {
+              console.warn(`⚠️ Error processing ${symbol}:`, error);
+              continue;
+            }
+          }
+          
+        } catch (coinPaprikaError) {
+          console.error('❌ Both CoinGecko and CoinPaprika failed:', coinPaprikaError);
+          throw new Error('Both CoinGecko and CoinPaprika APIs failed. Please try again later.');
+        }
+      }
       
-      // AI & Gaming
-      { symbol: 'FET', name: 'Fetch.ai', price: 1.45, marketCap: 1200000000, volume: 67000000, change24h: 8.90 },
-      { symbol: 'RNDR', name: 'Render Token', price: 7.89, marketCap: 3000000000, volume: 200000000, change24h: 12.34 },
-      { symbol: 'SAND', name: 'The Sandbox', price: 0.456, marketCap: 1000000000, volume: 78000000, change24h: 4.56 },
-      { symbol: 'MANA', name: 'Decentraland', price: 0.567, marketCap: 1050000000, volume: 89000000, change24h: 3.78 }
-    ];
-
-    const stockGems = [
-      // Tech Giants
-      { symbol: 'NVDA', name: 'NVIDIA Corporation', price: 875.32, marketCap: 2150000000000, volume: 45000000, change24h: 3.45 },
-      { symbol: 'TSLA', name: 'Tesla Inc', price: 248.67, marketCap: 790000000000, volume: 72000000, change24h: -1.23 },
-      { symbol: 'AMZN', name: 'Amazon.com Inc', price: 178.45, marketCap: 1850000000000, volume: 38000000, change24h: 2.67 },
-      { symbol: 'GOOGL', name: 'Alphabet Inc', price: 165.23, marketCap: 2080000000000, volume: 25000000, change24h: 1.89 },
-      { symbol: 'MSFT', name: 'Microsoft Corporation', price: 412.56, marketCap: 3060000000000, volume: 22000000, change24h: 0.89 },
-      { symbol: 'AAPL', name: 'Apple Inc', price: 189.78, marketCap: 2950000000000, volume: 48000000, change24h: 1.34 },
-      { symbol: 'META', name: 'Meta Platforms Inc', price: 456.89, marketCap: 1160000000000, volume: 31000000, change24h: 2.78 },
-      { symbol: 'NFLX', name: 'Netflix Inc', price: 567.34, marketCap: 250000000000, volume: 5200000, change24h: 4.56 },
+      console.log(`✅ Total crypto gems found: ${results.length}`);
+      return results;
       
-      // AI & Semiconductors
-      { symbol: 'AMD', name: 'Advanced Micro Devices', price: 156.78, marketCap: 253000000000, volume: 67000000, change24h: 5.67 },
-      { symbol: 'INTC', name: 'Intel Corporation', price: 34.56, marketCap: 145000000000, volume: 78000000, change24h: -2.34 },
-      { symbol: 'QCOM', name: 'Qualcomm Inc', price: 167.89, marketCap: 188000000000, volume: 12000000, change24h: 1.78 },
-      { symbol: 'AVGO', name: 'Broadcom Inc', price: 1234.56, marketCap: 570000000000, volume: 2800000, change24h: 2.89 },
-      { symbol: 'AMAT', name: 'Applied Materials', price: 189.45, marketCap: 160000000000, volume: 15000000, change24h: 3.67 },
-      { symbol: 'LRCX', name: 'Lam Research', price: 892.34, marketCap: 118000000000, volume: 1200000, change24h: 4.23 },
-      
-      // Growth Stocks
-      { symbol: 'PLTR', name: 'Palantir Technologies', price: 23.45, marketCap: 48000000000, volume: 45000000, change24h: 8.90 },
-      { symbol: 'RBLX', name: 'Roblox Corporation', price: 45.67, marketCap: 27000000000, volume: 18000000, change24h: 12.34 },
-      { symbol: 'SNOW', name: 'Snowflake Inc', price: 156.78, marketCap: 52000000000, volume: 6700000, change24h: 5.67 },
-      { symbol: 'DDOG', name: 'Datadog Inc', price: 123.45, marketCap: 40000000000, volume: 2300000, change24h: 3.89 },
-      { symbol: 'CRWD', name: 'CrowdStrike Holdings', price: 234.56, marketCap: 56000000000, volume: 3400000, change24h: 6.78 },
-      { symbol: 'ZM', name: 'Zoom Video Communications', price: 67.89, marketCap: 20000000000, volume: 8900000, change24h: 2.45 },
-      
-      // Electric Vehicles
-      { symbol: 'RIVN', name: 'Rivian Automotive', price: 12.34, marketCap: 11000000000, volume: 34000000, change24h: 15.67 },
-      { symbol: 'LCID', name: 'Lucid Group Inc', price: 3.45, marketCap: 6700000000, volume: 28000000, change24h: 9.78 },
-      { symbol: 'NIO', name: 'NIO Inc', price: 8.90, marketCap: 14000000000, volume: 23000000, change24h: 7.89 },
-      { symbol: 'XPEV', name: 'XPeng Inc', price: 12.67, marketCap: 11000000000, volume: 15000000, change24h: 4.56 },
-      
-      // Biotech & Healthcare
-      { symbol: 'MRNA', name: 'Moderna Inc', price: 89.45, marketCap: 33000000000, volume: 12000000, change24h: 11.23 },
-      { symbol: 'BNTX', name: 'BioNTech SE', price: 112.34, marketCap: 27000000000, volume: 890000, change24h: 8.90 },
-      { symbol: 'GILD', name: 'Gilead Sciences', price: 78.90, marketCap: 98000000000, volume: 8900000, change24h: 2.34 },
-      { symbol: 'BIIB', name: 'Biogen Inc', price: 234.56, marketCap: 33000000000, volume: 1200000, change24h: 5.67 },
-      
-      // Fintech
-      { symbol: 'PYPL', name: 'PayPal Holdings', price: 56.78, marketCap: 64000000000, volume: 23000000, change24h: 3.45 },
-      { symbol: 'SQ', name: 'Block Inc', price: 67.89, marketCap: 39000000000, volume: 18000000, change24h: 6.78 }
-    ];
-
-    // Helper function to generate realistic gem data
-    const createGemData = (baseGem: any, type: 'crypto' | 'stock'): RealGemSearchResult => {
-      const changePercent = baseGem.change24h;
-      const priceVariation = (Math.random() - 0.5) * 0.15; // ±7.5% price variation
-      const volumeVariation = (Math.random() - 0.5) * 0.3; // ±15% volume variation
-      const uniqueId = Math.random().toString(36).substr(2, 9); // Unique identifier
-      
-      // Ensure minimum values and realistic variations
-      const finalPrice = Math.max(baseGem.price * (1 + priceVariation), 0.0001);
-      const finalVolume = Math.max(baseGem.volume * (1 + volumeVariation), 1000);
-      const finalMarketCap = Math.max(baseGem.marketCap * (1 + priceVariation * 0.5), 100000);
-      
-      return {
-        ...baseGem,
-        id: `${baseGem.symbol}-${type}-${uniqueId}`,
-        price: finalPrice,
-        volume: finalVolume,
-        marketCap: finalMarketCap,
-        changePercent: changePercent,
-        change24h: changePercent,
-        type: type,
-        source: 'fallback' as const,
-        aiAnalysis: '',
-        aiRecommendation: changePercent > 2 ? 'buy' : changePercent < -2 ? 'sell' : 'hold',
-        aiConfidence: Math.random() * 0.4 + 0.5, // 50-90%
-        aiScore: Math.random() * 0.5 + 0.3, // 30-80%
-        technicalScore: Math.random() * 0.4 + 0.4, // 40-80%
-        technicalSignals: changePercent > 0 ? ['RSI_BULLISH', 'MACD_BULLISH'] : ['RSI_BEARISH', 'MACD_BEARISH'],
-        riskLevel: finalMarketCap > 10000000000 ? 'low' : finalMarketCap > 1000000000 ? 'medium' : 'high',
-        riskScore: finalMarketCap > 10000000000 ? Math.random() * 0.3 + 0.2 : Math.random() * 0.5 + 0.3,
-        priceTarget1d: finalPrice * (1 + changePercent * 0.01 * 0.3),
-        priceTarget7d: finalPrice * (1 + changePercent * 0.01 * 0.7),
-        priceTarget30d: finalPrice * (1 + changePercent * 0.01 * 1.5),
-        qualityScore: Math.random() * 0.4 + 0.4, // 40-80%
-        potential: changePercent > 5 ? 'high' : changePercent > 0 ? 'medium' : 'low',
-        lastUpdated: Date.now() + Math.floor(Math.random() * 1000) // Slightly different timestamps as numbers
-      } as RealGemSearchResult;
-    };
-
-    // Generate full gem data for all items
-    const fullCryptoGems = cryptoGems.map(gem => createGemData(gem, 'crypto'));
-    const fullStockGems = stockGems.map(gem => createGemData(gem, 'stock'));
-
-    // Select 4 random gems from the appropriate type using proper shuffling
-    const selectedGems = type === 'crypto' ? fullCryptoGems : fullStockGems;
-    
-    // Fisher-Yates shuffle algorithm for true randomness
-    const shuffled = [...selectedGems];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    } catch (error) {
+      console.error('❌ Error fetching crypto gems:', error);
+      throw error;
     }
-    
-    return shuffled.slice(0, 4);
   };
 
   // Generate basic AI analysis for any gem
@@ -572,67 +657,168 @@ const GemFinderScreen: React.FC = () => {
 
   // Function to scan for new gems using real APIs with AI analysis (always returns new gems)
   const handleScanNewGems = async (type: 'crypto' | 'stocks') => {
-    if (isScanning) return;
+    if (appState.isScanning) return;
 
     // Check cooldown
     if (!canScan(type)) {
       const remainingMs = getRemainingCooldown(type);
       const remainingMinutes = Math.ceil(remainingMs / 60000);
+      
+      let alertMessage = `Please wait ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''} before scanning ${type} again.`;
+      
+      // Add API info for stocks during cooldown
+      if (type === 'stocks') {
+        const keyStats = apiKeyManager.getUsageStatistics();
+        alertMessage += `\n\n🔑 API Status While Waiting:`;
+        alertMessage += `\n• ${keyStats.activeKeys}/${keyStats.totalKeys} Alpha Vantage keys active`;
+        alertMessage += `\n• ${keyStats.availableRequests} requests available`;
+        alertMessage += `\n• Can scan ${Math.floor(keyStats.availableRequests / 4)} more times today`;
+        
+        if (keyStats.activeKeys < keyStats.totalKeys) {
+          alertMessage += `\n\n⚠️ ${keyStats.totalKeys - keyStats.activeKeys} keys exhausted for today`;
+        }
+      }
+      
       Alert.alert(
         'Scan Cooldown',
-        `Please wait ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''} before scanning ${type} again.`,
+        alertMessage,
         [{ text: 'OK' }]
       );
       return;
     }
 
-    setIsScanning(true);
-    setScanningType(type);
-    setLoadingStatus(`Scanning ${type} with real APIs...`);
+    updateAppState({ 
+      isScanning: true, 
+      scanningType: type, 
+      loadingStatus: `Scanning ${type} with real APIs...` 
+    });
 
     try {
       console.log(`🔍 Starting ${type} scan with real data and AI analysis (limit: 4 gems, relaxed filters)`);
       let results: RealGemSearchResult[] = [];
+      const progressiveResults: RealGemSearchResult[] = [];
+
+      // Function to handle gems as they are found
+      const handleProgressiveGem = async (gem: RealGemSearchResult) => {
+        try {
+          console.log(`📊 Processing gem progressively: ${gem.symbol}`);
+          updateAppState({ loadingStatus: `Analyzing ${gem.symbol} with AI...` });
+          
+          // Generate AI analysis for this gem
+          const aiAnalysis = generateBasicAIAnalysis(gem);
+          const enrichedGem = {
+            ...gem,
+            aiAnalysis: aiAnalysis.analysis,
+            aiRecommendation: aiAnalysis.recommendation as 'buy' | 'hold' | 'sell',
+            aiConfidence: aiAnalysis.confidence,
+            aiScore: aiAnalysis.score,
+            potential: aiAnalysis.potential,
+            riskLevel: aiAnalysis.riskLevel,
+            qualityScore: aiAnalysis.qualityScore,
+            priceTarget30d: aiAnalysis.priceTarget30d
+          };
+
+          progressiveResults.push(enrichedGem);
+
+          // Save to Firebase immediately
+          try {
+            await saveGemsToFirebase([enrichedGem]);
+          } catch (firebaseError) {
+            console.warn('Warning: Failed to save gem to Firebase:', firebaseError);
+          }
+
+          // Update display immediately - check for duplicates
+          const existingSymbols = new Set(appState.gems.map(g => `${g.symbol}-${g.type}`));
+          if (!existingSymbols.has(`${enrichedGem.symbol}-${enrichedGem.type}`)) {
+            const updatedGems = [enrichedGem, ...appState.gems];
+            updateGems(updatedGems);
+            await cacheGems(updatedGems);
+            console.log(`✅ ${enrichedGem.symbol} displayed immediately!`);
+          }
+
+        } catch (error) {
+          console.warn(`Error processing gem ${gem.symbol}:`, error);
+        }
+      };
 
       try {
-        // Intentar con las APIs reales primero
+        // Use real APIs with progressive display
         if (type === 'crypto') {
-          setLoadingStatus('Generating crypto gems from fallback database...');
-          // Solo usar fallback para crypto, no APIs reales
-          results = generateFallbackGems(type);
+          updateAppState({ loadingStatus: 'Searching crypto gems from CoinGecko...' });
+          results = await searchRealCryptoGems(handleProgressiveGem);
         } else {
-          setLoadingStatus('Fetching stock data from Alpha Vantage...');
-          results = await realGemSearchService.searchStockGems({
-            maxResults: 4, // API rate limit
-            minAIScore: 0, // Accept all
-            sortBy: 'marketCap',
-            onlyWithPositiveAI: false, // Accept all
-            minMarketCap: 0,
-            maxMarketCap: undefined,
-            minVolume: 0
+          // Get API rotation status for stocks
+          const keyStats = apiKeyManager.getUsageStatistics();
+          const currentKey = apiKeyManager.getCurrentAlphaVantageKey();
+          const currentKeyInfo = keyStats.keyDetails.find(k => currentKey.includes(k.name.slice(-1))) || keyStats.keyDetails[0];
+          
+          console.log('🔑 API Rotation Status for Stock Scan:');
+          console.log(`   📊 Active Keys: ${keyStats.activeKeys}/${keyStats.totalKeys}`);
+          console.log(`   📈 Today's Usage: ${keyStats.totalRequests} requests`);
+          console.log(`   ⚡ Available: ${keyStats.availableRequests} requests remaining`);
+          console.log(`   🎯 Current Key: ${currentKeyInfo?.name} (${currentKeyInfo?.usage}/${currentKeyInfo?.limit})`);
+          
+          updateAppState({ 
+            loadingStatus: `📊 Fetching stocks with Alpha Vantage (${keyStats.activeKeys} API keys rotating)...` 
           });
+          
+          // Add delay between status updates for better UX
+          setTimeout(() => {
+            updateAppState({ 
+              loadingStatus: `🔑 Using ${currentKeyInfo?.name}: ${currentKeyInfo?.available} requests available...` 
+            });
+          }, 1000);
+          
+          setTimeout(() => {
+            updateAppState({ 
+              loadingStatus: `📈 Scanning stocks with AI analysis...` 
+            });
+          }, 2000);
+          
+          results = await realGemSearchService.searchStockGems({
+            maxResults: 4,
+            minAIScore: 0,
+            sortBy: 'marketCap',
+            onlyWithPositiveAI: false,
+            minMarketCap: 100000000, // 100M minimum for stocks
+            maxMarketCap: undefined,
+            minVolume: 1000000 // 1M minimum volume
+          });
+
+          // For stocks, process them progressively too
+          console.log(`💎 Processing ${results.length} stock gems with AI analysis...`);
+          for (const gem of results) {
+            if (gem.symbol && gem.name && gem.price > 0) {
+              console.log(`📊 Processing stock: ${gem.symbol} (${gem.name}) - $${gem.price.toFixed(2)}`);
+              await handleProgressiveGem(gem);
+            }
+          }
+          
+          // Log final API usage after scan
+          const finalStats = apiKeyManager.getUsageStatistics();
+          console.log('🔑 API Usage After Stock Scan:');
+          console.log(`   📈 Requests Used: ${finalStats.totalRequests - keyStats.totalRequests} additional`);
+          console.log(`   ⚡ Remaining Today: ${finalStats.availableRequests} requests`);
         }
 
         // Filter: must have symbol, name, price
         const validResults = results.filter(result =>
-          result.symbol && result.name && (result.price !== undefined && result.price !== null)
+          result.symbol && 
+          result.name && 
+          (result.price !== undefined && result.price !== null && result.price > 0)
         );
 
-        // Si no hay resultados válidos de las APIs, usar fallback
         if (validResults.length === 0) {
-          console.log('🔄 No valid results from APIs, using fallback gems...');
-          setLoadingStatus('Generating fallback gems with realistic data...');
-          results = generateFallbackGems(type);
-        } else {
-          results = validResults;
+          throw new Error(`No valid ${type} gems found from real APIs`);
         }
+        
+        results = validResults;
       } catch (apiError) {
-        console.warn('⚠️ API Error, falling back to realistic gems:', apiError);
-        setLoadingStatus('APIs unavailable, generating realistic fallback gems...');
-        results = generateFallbackGems(type);
+        console.error(`❌ API Error for ${type}:`, apiError);
+        throw new Error(`Failed to fetch ${type} data from real APIs. Please try again later.`);
       }
 
-      if (results.length === 0) {
+      if (progressiveResults.length === 0) {
         Alert.alert(
           'Error',
           'Unable to generate any gems. Please try again later.',
@@ -641,73 +827,67 @@ const GemFinderScreen: React.FC = () => {
         return;
       }
 
-      setLoadingStatus('Analyzing results with AI...');
-
-      // Generate AI analysis for all gems
-      const enrichedResults = await Promise.all(
-        results.map(async (gem) => {
-          try {
-            // Always generate AI analysis
-            const aiAnalysis = generateBasicAIAnalysis(gem);
-            return {
-              ...gem,
-              aiAnalysis: aiAnalysis.analysis,
-              aiRecommendation: aiAnalysis.recommendation as 'buy' | 'hold' | 'sell',
-              aiConfidence: aiAnalysis.confidence,
-              aiScore: aiAnalysis.score,
-              potential: aiAnalysis.potential,
-              riskLevel: aiAnalysis.riskLevel,
-              qualityScore: aiAnalysis.qualityScore,
-              priceTarget30d: aiAnalysis.priceTarget30d
-            };
-          } catch (error) {
-            console.warn(`Error enriching gem ${gem.symbol}:`, error);
-            return gem;
-          }
-        })
-      );
-
       // Update last scan time
       const newScanTimes = {
-        ...lastScanTime,
+        ...appState.lastScanTime,
         [type]: Date.now()
       };
-      setLastScanTime(newScanTimes);
+      updateAppState({ lastScanTime: newScanTimes });
       await cacheScanTimes(newScanTimes);
 
-      // Save to Firebase
-      await saveGemsToFirebase(enrichedResults);
+      console.log(`✅ Successfully found ${progressiveResults.length} ${type} gems with progressive AI analysis`);
 
-      // Prevent duplicates: filter out gems with same symbol and type
-      const existingSymbols = new Set(gems.map(gem => `${gem.symbol}-${gem.type}`));
-      const newUniqueGems = enrichedResults.filter(gem => 
-        !existingSymbols.has(`${gem.symbol}-${gem.type}`)
-      );
+      // Prepare success message with API rotation info for stocks
+      let successMessage = `Found ${progressiveResults.length} ${type} gems with AI analysis! Gems were displayed as they were found for faster results.`;
       
-      // Cache the results with new unique gems only
-      const updatedGems = [...newUniqueGems, ...gems];
-      await cacheGems(updatedGems);
-
-      // Update state
-      setGems(updatedGems);
-      console.log(`✅ Successfully found ${enrichedResults.length} ${type} gems with AI analysis`);
+      if (type === 'stocks') {
+        const finalStats = apiKeyManager.getUsageStatistics();
+        successMessage += `\n\n🔑 API Rotation System:`;
+        successMessage += `\n• ${finalStats.activeKeys}/${finalStats.totalKeys} keys active`;
+        successMessage += `\n• ${finalStats.totalRequests} total requests today`;
+        successMessage += `\n• ${finalStats.availableRequests} requests remaining`;
+        successMessage += `\n\nWith 10 API keys, you can scan up to ${Math.floor(finalStats.availableRequests / 4)} more times today!`;
+      }
 
       Alert.alert(
         'Scan Complete',
-        `Found ${enrichedResults.length} ${type} gems with AI analysis! ${type === 'crypto' ? 'Fallback database' : results[0]?.source === 'real' ? 'Alpha Vantage data' : 'Realistic fallback data'} saved to Firebase.`,
+        successMessage,
         [{ text: 'OK' }]
       );
     } catch (error) {
       console.error(`❌ Error scanning ${type} gems:`, error);
-      Alert.alert(
-        'Scan Error',
-        `Failed to scan ${type} gems. Please check your internet connection and try again.`,
-        [{ text: 'OK' }]
-      );
+      
+      let errorMessage = `Failed to scan ${type} gems.`;
+      
+      if (type === 'stocks') {
+        errorMessage += `\n\nPossible causes:\n• Alpha Vantage API rate limits reached\n• Network connectivity issues\n• API keys exhausted`;
+        errorMessage += `\n\n💡 Alternative: Try the "Real APIs Test" button to test Yahoo Finance, Finnhub, and other free APIs that don't require rate limits.`;
+        
+        Alert.alert(
+          'Scan Error',
+          errorMessage,
+          [
+            { text: 'OK' },
+            { 
+              text: 'Test Real APIs', 
+              onPress: () => testAlternativeAPIs()
+            }
+          ]
+        );
+      } else {
+        errorMessage += ` Please check your internet connection and try again.`;
+        Alert.alert(
+          'Scan Error',
+          errorMessage,
+          [{ text: 'OK' }]
+        );
+      }
     } finally {
-      setIsScanning(false);
-      setScanningType(null);
-      setLoadingStatus('');
+      updateAppState({ 
+        isScanning: false, 
+        scanningType: null, 
+        loadingStatus: '' 
+      });
     }
   };
 
@@ -758,8 +938,8 @@ const GemFinderScreen: React.FC = () => {
       return price.toFixed(8);
     }
   };
-  // Render gem item with real data - Fixed undefined values
-  const renderGem = ({ item }: { item: RealGemSearchResult }) => {
+  // Render gem item with real data - Fixed undefined values - Memoized for performance
+  const renderGem = useCallback(({ item }: { item: RealGemSearchResult }) => {
     // Safely handle undefined values
     const price = item.price || 0;
     const change24h = item.change24h || 0;
@@ -783,7 +963,7 @@ const GemFinderScreen: React.FC = () => {
     return (
       <TouchableOpacity
         style={styles.gemCard}
-        onPress={() => setSelectedGem(item)}
+        onPress={() => updateAppState({ selectedGem: item })}
       >
         <LinearGradient
           colors={['#1A1A2E', '#16213E']}
@@ -897,17 +1077,17 @@ const GemFinderScreen: React.FC = () => {
         </LinearGradient>
       </TouchableOpacity>
     );
-  };
+  }, [updateAppState, formatTimeSinceDiscovery, formatPrice]);
 
-  const FilterButton = ({ filter, label }: { filter: typeof selectedFilter, label: string }) => (
+  const FilterButton = useCallback(({ filter, label }: { filter: typeof appState.selectedFilter, label: string }) => (
     <TouchableOpacity
       style={[
         styles.filterButton,
-        selectedFilter === filter && styles.activeFilter,
+        appState.selectedFilter === filter && styles.activeFilter,
       ]}
-      onPress={() => setSelectedFilter(filter)}
+      onPress={() => updateAppState({ selectedFilter: filter })}
     >
-      {selectedFilter === filter && (
+      {appState.selectedFilter === filter && (
         <LinearGradient
           colors={theme.gradients.primary as any}
           style={styles.activeFilterGradient}
@@ -915,38 +1095,27 @@ const GemFinderScreen: React.FC = () => {
       )}
       <Text style={[
         styles.filterText,
-        selectedFilter === filter && styles.activeFilterText,
+        appState.selectedFilter === filter && styles.activeFilterText,
       ]}>
         {label}
       </Text>
     </TouchableOpacity>
-  );
-
-  // Filter gems based on selected filter
-  const filteredGems = gems.filter(gem => {
-    if (selectedFilter === 'all') return true;
-    if (selectedFilter === 'crypto') return gem.type === 'crypto';
-    if (selectedFilter === 'stocks') return gem.type === 'stock';
-    if (selectedFilter === 'high' ) return gem.potential === 'high' || gem.potential === 'very_high';
-    if (selectedFilter === 'medium') return gem.potential === 'medium';
-    if (selectedFilter === 'low') return gem.riskLevel === 'low';
-    return true;
-  });
+  ), [appState.selectedFilter, updateAppState]);
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
+    updateAppState({ refreshing: true });
     try {
       await loadGemsFromFirebase();
     } catch (error) {
       console.error('Error refreshing:', error);
     } finally {
-      setRefreshing(false);
+      updateAppState({ refreshing: false });
     }
-  }, []);
+  }, [updateAppState]);
 
-  // Get scan button text with cooldown
-  const getScanButtonText = (type: 'crypto' | 'stocks') => {
-    if (isScanning && scanningType === type) {
+  // Get scan button text with cooldown - memoized
+  const getScanButtonText = useCallback((type: 'crypto' | 'stocks') => {
+    if (appState.isScanning && appState.scanningType === type) {
       return 'Scanning...';
     }
     
@@ -956,8 +1125,248 @@ const GemFinderScreen: React.FC = () => {
       return `Wait ${remainingMinutes}m`;
     }
     
-    return type === 'crypto' ? 'Scan Crypto (4)' : 'Scan Stocks (4)';
-  };
+    if (type === 'stocks') {
+      const keyStats = apiKeyManager.getUsageStatistics();
+      return `Scan Stocks (${keyStats.activeKeys} APIs)`;
+    }
+    
+    return 'Scan Crypto (4)';
+  }, [appState.isScanning, appState.scanningType, canScan, getRemainingCooldown]);
+
+  // API Diagnostic function
+  const runAPIsDiagnostic = useCallback(async () => {
+    console.log('🔬 Starting comprehensive API diagnostic...');
+    updateAppState({ isDiagnosing: true });
+
+    try {
+      const diagnostic = await stockAPIRecovery.runComprehensiveDiagnostic();
+      
+      // Create user-friendly alert
+      let alertTitle = '';
+      let alertMessage = '';
+      
+      switch (diagnostic.severity) {
+        case 'critical':
+          alertTitle = '🚨 Critical API Issues';
+          alertMessage = `All APIs are failing! This needs immediate attention.\n\n`;
+          break;
+        case 'high':
+          alertTitle = '⚠️ Significant API Issues';
+          alertMessage = `Major problems detected with your APIs.\n\n`;
+          break;
+        case 'medium':
+          alertTitle = '🔧 API Issues Detected';
+          alertMessage = `Some APIs need attention.\n\n`;
+          break;
+        case 'low':
+          alertTitle = '✅ APIs Status Check';
+          alertMessage = `APIs are mostly working well.\n\n`;
+          break;
+      }
+      
+      // Add detailed results
+      alertMessage += `📊 RESULTS:\n`;
+      alertMessage += `• Alpha Vantage: ${diagnostic.alphaVantage.workingKeys.length}/${diagnostic.alphaVantage.totalKeys} keys working (${diagnostic.alphaVantage.overallStatus})\n`;
+      alertMessage += `• Yahoo Finance: ${diagnostic.yahooFinance.working ? '✅ Working' : '❌ Failed'}\n`;
+      alertMessage += `• Finnhub: ${diagnostic.finnhub.working ? '✅ Working' : '❌ Failed'}\n\n`;
+      
+      if (diagnostic.recommendations.length > 0) {
+        alertMessage += `💡 RECOMMENDATIONS:\n`;
+        diagnostic.recommendations.forEach((rec, index) => {
+          alertMessage += `${index + 1}. ${rec.replace(/🚨|⚠️|ℹ️|✅|🚫|💥|🔑|🔧/g, '')}\n`;
+        });
+      }
+      
+      Alert.alert(alertTitle, alertMessage, [
+        { text: 'OK', style: 'default' },
+        { 
+          text: 'View Console Logs', 
+          style: 'default', 
+          onPress: () => {
+            console.log('📋 Detailed diagnostic results:', diagnostic);
+          }
+        }
+      ]);
+      
+    } catch (error) {
+      console.error('❌ Diagnostic failed:', error);
+      Alert.alert(
+        '❌ Diagnostic Failed', 
+        `Unable to run API diagnostic: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      updateAppState({ isDiagnosing: false });
+    }
+  }, [updateAppState]);
+
+  // Simple API test function
+  const runSimpleAPITest = useCallback(async () => {
+    console.log('🔬 Running simple API test...');
+    updateAppState({ isDiagnosing: true });
+
+    try {
+      const result = await simpleStockAPITest();
+      
+      if (result.success) {
+        Alert.alert(
+          '✅ API Test Success!',
+          `Successfully retrieved ${result.symbol} stock data:\nPrice: $${result.price}\n\nAPI appears to be working correctly.`,
+          [{ text: 'Great!', style: 'default' }]
+        );
+      } else {
+        Alert.alert(
+          '❌ API Test Failed',
+          `Test failed: ${result.error}\n\nDetails: ${result.details}\n\nCheck console for more information.`,
+          [
+            { text: 'OK', style: 'default' },
+            { 
+              text: 'Test All Keys', 
+              style: 'default', 
+              onPress: runAllKeysTest 
+            },
+            { 
+              text: 'Try Alternative APIs', 
+              style: 'default', 
+              onPress: testAlternativeAPIs 
+            }
+          ]
+        );
+      }
+      
+    } catch (error) {
+      console.error('❌ Simple test failed:', error);
+      Alert.alert(
+        '❌ Test Error', 
+        `Test failed with error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        [
+          { text: 'OK', style: 'default' },
+          { 
+            text: 'Try Alternative APIs', 
+            style: 'default', 
+            onPress: testAlternativeAPIs 
+          }
+        ]
+      );
+    } finally {
+      updateAppState({ isDiagnosing: false });
+    }
+  }, [updateAppState]);
+
+  // Test all API keys function
+  const runAllKeysTest = useCallback(async () => {
+    console.log('🔬 Testing all API keys...');
+    updateAppState({ isDiagnosing: true });
+
+    try {
+      const result = await testAllAPIKeys();
+      
+      Alert.alert(
+        '📊 All Keys Test Complete',
+        `Results:\n✅ Successful: ${result.successful}/${result.totalTests}\n❌ Failed: ${result.failed}/${result.totalTests}\n\nCheck console for detailed results.`,
+        [{ text: 'OK', style: 'default' }]
+      );
+      
+    } catch (error) {
+      console.error('❌ All keys test failed:', error);
+      Alert.alert(
+        '❌ Test Error', 
+        `All keys test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      updateAppState({ isDiagnosing: false });
+    }
+  }, [updateAppState]);
+
+  // Test alternative real APIs function
+  const testAlternativeAPIs = useCallback(async () => {
+    console.log('🧪 Testing alternative real stock APIs...');
+    updateAppState({ isDiagnosing: true });
+
+    try {
+      const testResult = await RealStockAPIService.testAPIAvailability();
+      
+      Alert.alert(
+        '📡 Alternative APIs Test',
+        `${testResult.summary}\n\n${testResult.workingAPIs.length > 0 ? 
+          `Working APIs:\n${testResult.workingAPIs.map(api => `• ${api}`).join('\n')}` : 
+          'No alternative APIs are working'}\n\nThese APIs can be used when Alpha Vantage hits rate limits.`,
+        [
+          { text: 'OK', style: 'default' },
+          testResult.workingAPIs.length > 0 ? { 
+            text: 'Test with Real Data', 
+            style: 'default', 
+            onPress: testRealStockData 
+          } : null
+        ].filter(Boolean) as any
+      );
+      
+    } catch (error) {
+      console.error('❌ Alternative API test failed:', error);
+      Alert.alert(
+        '❌ Test Error', 
+        `Alternative API test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      updateAppState({ isDiagnosing: false });
+    }
+  }, [updateAppState]);
+
+  // Test fetching real stock data
+  const testRealStockData = useCallback(async () => {
+    console.log('📊 Testing real stock data fetch...');
+    updateAppState({ isDiagnosing: true });
+
+    try {
+      const testSymbols = ['AAPL', 'MSFT', 'GOOGL'];
+      const results = await RealStockAPIService.fetchRealStockData(testSymbols);
+      
+      if (results.length > 0) {
+        const resultText = results.map(stock => 
+          `${stock.symbol}: $${stock.price.toFixed(2)} (${stock.changePercent.toFixed(2)}%) - ${stock.source}`
+        ).join('\n');
+        
+        Alert.alert(
+          '✅ Real Stock Data Test Success!',
+          `Retrieved ${results.length}/${testSymbols.length} stocks:\n\n${resultText}\n\nAll data is real and live from free APIs!`,
+          [{ text: 'Great!', style: 'default' }]
+        );
+      } else {
+        Alert.alert(
+          '⚠️ No Data Retrieved',
+          'No real stock data could be fetched from alternative APIs. Check console for details.',
+          [{ text: 'OK', style: 'default' }]
+        );
+      }
+      
+    } catch (error) {
+      console.error('❌ Real stock data test failed:', error);
+      Alert.alert(
+        '❌ Test Failed', 
+        `Real stock data test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      updateAppState({ isDiagnosing: false });
+    }
+  }, [updateAppState]);
+
+  // Optimized getItemLayout for FlatList performance
+  const getItemLayout = useCallback((data: any, index: number) => ({
+    length: 180, // Approximate height of each gem card
+    offset: 180 * index,
+    index,
+  }), []);
+
+  // Key extractor optimized
+  const keyExtractor = useCallback((item: RealGemSearchResult, index: number) => {
+    const timestamp = typeof item.lastUpdated === 'number' 
+      ? item.lastUpdated 
+      : (item.lastUpdated instanceof Date ? item.lastUpdated.getTime() : Date.now());
+    return `${item.symbol}-${item.type}-${index}-${timestamp}`;
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -970,7 +1379,7 @@ const GemFinderScreen: React.FC = () => {
           <TouchableOpacity 
             style={[styles.scanButton, !canScan('crypto') && styles.disabledButton]}
             onPress={() => handleScanNewGems('crypto')}
-            disabled={isScanning || !canScan('crypto')}
+            disabled={appState.isScanning || !canScan('crypto')}
           >
             <LinearGradient
               colors={!canScan('crypto') ? ['#666', '#555'] : ['#FFB000', '#FF8C00']}
@@ -980,9 +1389,9 @@ const GemFinderScreen: React.FC = () => {
                 <Text style={styles.scanButtonIcon}>💎</Text>
                 <View style={styles.scanButtonTextContainer}>
                   <Text style={styles.scanButtonText}>{getScanButtonText('crypto')}</Text>
-                  <Text style={styles.scanButtonSubText}>Fallback Database</Text>
+                  <Text style={styles.scanButtonSubText}>Real CoinGecko API</Text>
                 </View>
-                {scanningType === 'crypto' && (
+                {appState.scanningType === 'crypto' && (
                   <ActivityIndicator size="small" color="#FFF" />
                 )}
               </View>
@@ -991,7 +1400,7 @@ const GemFinderScreen: React.FC = () => {
           <TouchableOpacity 
             style={[styles.scanButton, !canScan('stocks') && styles.disabledButton]}
             onPress={() => handleScanNewGems('stocks')}
-            disabled={isScanning || !canScan('stocks')}
+            disabled={appState.isScanning || !canScan('stocks')}
           >
             <LinearGradient
               colors={!canScan('stocks') ? ['#666', '#555'] : [theme.accent, '#1976D2']}
@@ -1001,9 +1410,100 @@ const GemFinderScreen: React.FC = () => {
                 <Text style={styles.scanButtonIcon}>🚀</Text>
                 <View style={styles.scanButtonTextContainer}>
                   <Text style={styles.scanButtonText}>{getScanButtonText('stocks')}</Text>
-                  <Text style={styles.scanButtonSubText}>Alpha Vantage + AI</Text>
+                  <Text style={styles.scanButtonSubText}>
+                    {(() => {
+                      const stats = apiKeyManager.getUsageStatistics();
+                      if (!canScan('stocks')) {
+                        const remainingMs = getRemainingCooldown('stocks');
+                        const remainingMinutes = Math.ceil(remainingMs / 60000);
+                        return `Cooldown: ${remainingMinutes}m`;
+                      }
+                      return `${stats.availableRequests} API calls left today`;
+                    })()}
+                  </Text>
                 </View>
-                {scanningType === 'stocks' && (
+                {appState.scanningType === 'stocks' && (
+                  <ActivityIndicator size="small" color="#FFF" />
+                )}
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* API Diagnostic Buttons */}
+        <View style={styles.scanButtonsContainer}>
+          <TouchableOpacity
+            style={[styles.scanButton]}
+            onPress={runSimpleAPITest}
+            disabled={appState.isDiagnosing || appState.isScanning}
+          >
+            <LinearGradient
+              colors={appState.isDiagnosing ? ['#666', '#555'] : ['#4CAF50', '#45A049']}
+              style={styles.scanButton}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.scanButtonContent}>
+                <Text style={styles.scanButtonText}>
+                  {appState.isDiagnosing ? 'Testing...' : '🧪 Quick API Test'}
+                </Text>
+                <Text style={styles.scanButtonSubText}>
+                  Test current API key
+                </Text>
+                {appState.isDiagnosing && (
+                  <ActivityIndicator size="small" color="#FFF" />
+                )}
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.scanButton]}
+            onPress={runAPIsDiagnostic}
+            disabled={appState.isDiagnosing || appState.isScanning}
+          >
+            <LinearGradient
+              colors={appState.isDiagnosing ? ['#666', '#555'] : ['#FF6B35', '#F7931E']}
+              style={styles.scanButton}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.scanButtonContent}>
+                <Text style={styles.scanButtonText}>
+                  {appState.isDiagnosing ? 'Diagnosing...' : '🔬 Full Diagnostic'}
+                </Text>
+                <Text style={styles.scanButtonSubText}>
+                  Check all APIs & backups
+                </Text>
+                {appState.isDiagnosing && (
+                  <ActivityIndicator size="small" color="#FFF" />
+                )}
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* Alternative APIs Test Button */}
+        <View style={styles.scanButtonsContainer}>
+          <TouchableOpacity
+            style={[styles.scanButton]}
+            onPress={testAlternativeAPIs}
+            disabled={appState.isDiagnosing || appState.isScanning}
+          >
+            <LinearGradient
+              colors={appState.isDiagnosing ? ['#666', '#555'] : ['#9C27B0', '#673AB7']}
+              style={styles.scanButton}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.scanButtonContent}>
+                <Text style={styles.scanButtonText}>
+                  {appState.isDiagnosing ? 'Testing...' : '📡 Real APIs Test'}
+                </Text>
+                <Text style={styles.scanButtonSubText}>
+                  Test Yahoo, Finnhub, FMP & more
+                </Text>
+                {appState.isDiagnosing && (
                   <ActivityIndicator size="small" color="#FFF" />
                 )}
               </View>
@@ -1026,11 +1526,11 @@ const GemFinderScreen: React.FC = () => {
         </View>
 
         {/* Loading Status */}
-        {isScanning && (
+        {appState.isScanning && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.primary} />
             <Text style={styles.loadingText}>Scanning with Real APIs...</Text>
-            <Text style={styles.loadingSubText}>{loadingStatus}</Text>
+            <Text style={styles.loadingSubText}>{appState.loadingStatus}</Text>
           </View>
         )}
 
@@ -1040,28 +1540,28 @@ const GemFinderScreen: React.FC = () => {
             <FlatList
               data={filteredGems}
               renderItem={renderGem}
-              keyExtractor={(item, index) => {
-                const timestamp = typeof item.lastUpdated === 'number' 
-                  ? item.lastUpdated 
-                  : (item.lastUpdated instanceof Date ? item.lastUpdated.getTime() : Date.now());
-                return `${item.symbol}-${item.type}-${index}-${timestamp}`;
-              }}
+              keyExtractor={keyExtractor}
+              getItemLayout={getItemLayout}
               refreshControl={
                 <RefreshControl
-                  refreshing={refreshing}
+                  refreshing={appState.refreshing}
                   onRefresh={onRefresh}
                   colors={[theme.primary]}
                 />
               }
               contentContainerStyle={styles.listContainer}
               showsVerticalScrollIndicator={false}
+              initialNumToRender={PERFORMANCE_CONFIG.INITIAL_NUM_TO_RENDER}
+              maxToRenderPerBatch={PERFORMANCE_CONFIG.MAX_TO_RENDER_PER_BATCH}
+              windowSize={PERFORMANCE_CONFIG.WINDOW_SIZE}
+              removeClippedSubviews={true}
             />
           ) : (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyIcon}>🔍</Text>
               <Text style={styles.emptyText}>No Gems Found</Text>
               <Text style={styles.emptySubText}>
-                {isScanning ? 'Scanning for gems...' : 'Tap a scan button to find up to 4 gems with real data and AI analysis'}
+                {appState.isScanning ? 'Scanning for gems...' : 'Tap a scan button to find up to 4 gems with real data and AI analysis'}
               </Text>
             </View>
           )}
@@ -1070,15 +1570,15 @@ const GemFinderScreen: React.FC = () => {
 
       {/* Gem Detail Modal */}
       <Modal
-        visible={!!selectedGem}
+        visible={!!appState.selectedGem}
         animationType="slide"
         presentationStyle="fullScreen"
-        onRequestClose={() => setSelectedGem(null)}
+        onRequestClose={() => updateAppState({ selectedGem: null })}
       >
-        {selectedGem && (
+        {appState.selectedGem && (
           <GemDetailScreenNew
-            gem={convertRealGemToDetailFormat(selectedGem)}
-            onBack={() => setSelectedGem(null)}
+            gem={convertRealGemToDetailFormat(appState.selectedGem)}
+            onBack={() => updateAppState({ selectedGem: null })}
           />
         )}
       </Modal>

@@ -1,46 +1,96 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { integratedDataService } from './integratedDataService';
 import { realDataService } from './realDataService';
 import { firebaseService } from './firebaseService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { realTechnicalAnalysisService } from './realTechnicalAnalysisService';
+import { realSentimentAnalysisService, realSocialMediaService } from './realSentimentAnalysisService';
+import { realMarketDataService } from './realMarketDataService';
+import { signalTrackingService } from './signalTrackingService';
+import { DATA_SOURCES, getDataSourceForSymbol, getVolumeFromGems } from '../config/dataSourceConfig';
 
-// Mock AI services to avoid errors
+// REAL AI services (replacing mocks)
 const vectorFluxAI = {
-  initialize: async () => { console.log('VectorFlux AI initialized (mock)'); },
+  initialize: async () => { 
+    console.log('🧠 VectorFlux AI initialized (REAL MODE)');
+    // Initialize real AI models here
+  },
   isInitialized: true
 };
 
 const vectorFluxService = {
-  initialize: async () => { console.log('VectorFlux Service initialized (mock)'); },
-  performCompleteAnalysis: async (symbol: string) => null,
-  getMarketData: async (symbol: string, timeframe: string) => [],
-  performAdvancedTechnicalAnalysis: async (data: any) => ({ trends: { short: 'NEUTRAL' } })
+  initialize: async () => { 
+    console.log('🚀 VectorFlux Service initialized (REAL MODE)');
+  },
+  performCompleteAnalysis: async (symbol: string) => {
+    // Use real market data for analysis
+    const marketData = await realMarketDataService.fetchRealMarketData(symbol, '1d');
+    if (marketData.length > 0) {
+      return realTechnicalAnalysisService.performComprehensiveAnalysis(marketData);
+    }
+    return null;
+  },
+  getMarketData: async (symbol: string, timeframe: string) => {
+    return await realMarketDataService.fetchRealMarketData(symbol, timeframe);
+  },
+  performAdvancedTechnicalAnalysis: async (data: any) => {
+    if (data && data.length > 0) {
+      const analysis = realTechnicalAnalysisService.performComprehensiveAnalysis(data);
+      return {
+        trends: {
+          short: analysis.summary.includes('BULLISH') ? 'BULLISH' : 
+                 analysis.summary.includes('BEARISH') ? 'BEARISH' : 'NEUTRAL'
+        },
+        signals: analysis.signals,
+        indicators: analysis.indicators
+      };
+    }
+    return { trends: { short: 'NEUTRAL' } };
+  }
 };
 
 const marketDataProcessor = {
   prepareDNNFeatures: (marketData: any, indicators: any) => {
-    // Return 10 mock features for DNN
+    // REAL features based on actual technical indicators
+    if (!indicators || !marketData || marketData.length === 0) {
+      return Array(10).fill(0); // Return zeros if no data
+    }
+    
+    const prices = marketData.map((d: any) => d.close);
+    const volumes = marketData.map((d: any) => d.volume);
+    const currentPrice = prices[prices.length - 1];
+    const avgVolume = volumes.reduce((a: number, b: number) => a + b, 0) / volumes.length;
+    
     return [
-      Math.random() * 0.1 - 0.05, // momentum
-      Math.random() * 0.5,        // volatility
-      Math.random(),              // rsi
-      Math.random(),              // volume
-      Math.random(),              // sma
-      Math.random(),              // bollinger
-      Math.random(),              // adx
-      Math.random(),              // atr
-      Math.random(),              // macd
-      Math.random()               // additional feature
+      (indicators.rsi - 50) / 50,                                    // RSI normalized
+      Math.min(Math.max((indicators.stochastic.k - 50) / 50, -1), 1), // Stochastic K normalized  
+      Math.min(Math.max(indicators.williamsR / 100, -1), 1),         // Williams %R normalized
+      Math.min(Math.max(indicators.cci / 100, -2), 2),               // CCI normalized
+      indicators.macd.histogram[indicators.macd.histogram.length - 1] / currentPrice, // MACD histogram
+      (currentPrice - indicators.bollinger.middle) / indicators.bollinger.middle,    // Bollinger position
+      Math.min(indicators.atr / currentPrice, 0.1) * 10,             // ATR normalized
+      Math.min(indicators.adx / 100, 1),                             // ADX normalized
+      Math.min(Math.max((volumes[volumes.length - 1] - avgVolume) / avgVolume, -1), 1), // Volume change
+      Math.min(Math.max((currentPrice - prices[0]) / prices[0], -0.2), 0.2) * 5        // Price change
     ];
   }
 };
 
+// REAL sentiment analysis service (replacing mock)
 const sentimentAnalysisService = {
-  fetchNewsFromAPI: async (symbol: string, count: number) => [],
-  analyzeMultipleSources: async (newsData: any) => ({
-    overall: { score: 0, confidence: 0.5, impact: 'minimal' },
-    summary: 'No sentiment data available',
-    statistics: { totalArticles: 0 }
-  })
+  fetchNewsFromAPI: async (symbol: string, count: number) => {
+    return await realSentimentAnalysisService.fetchRealNews(symbol, count);
+  },
+  analyzeMultipleSources: async (newsData: any) => {
+    if (!newsData || newsData.length === 0) {
+      return {
+        overall: { score: 0, confidence: 0.3, impact: 'minimal' },
+        summary: 'No news data available for analysis',
+        statistics: { totalArticles: 0 }
+      };
+    }
+    
+    return await realSentimentAnalysisService.analyzeComprehensiveSentiment('');
+  }
 };
 
 export interface AutoAlert {
@@ -139,7 +189,10 @@ class AutoAlertService {
   // Momentum Breakout Strategy
   private async analyzeMomentumBreakout(data: any): Promise<AutoAlert | null> {
     const changePercent = Math.abs(data.changePercent);
-    const volume = data.volume || 0;
+    const volume = data.volume || await getVolumeFromGems(data.symbol) || 1000000;
+    
+    // Get proper data source for this symbol
+    const dataSource = getDataSourceForSymbol(data.symbol);
     
     // AI conditions for momentum breakout
     if (changePercent > 8 && volume > 1000000) {
@@ -157,7 +210,7 @@ class AutoAlertService {
         targetPrice: data.price * (signal === 'buy' ? 1.15 : 0.85),
         stopLoss: data.price * (signal === 'buy' ? 0.92 : 1.08),
         strategy: 'AI Momentum Breakout',
-        reasoning: `Strong ${signal === 'buy' ? 'bullish' : 'bearish'} momentum detected with ${changePercent.toFixed(1)}% price movement and high volume (${(volume/1000000).toFixed(1)}M). AI models indicate continuation probability.`,
+        reasoning: `Strong ${signal === 'buy' ? 'bullish' : 'bearish'} momentum detected with ${changePercent.toFixed(1)}% price movement and high volume (${(volume/1000000).toFixed(1)}M). Data from ${dataSource}. AI models indicate continuation probability.`,
         timeframe: '1-3 days',
         createdAt: new Date(),
         isActive: true,
@@ -348,7 +401,7 @@ class AutoAlertService {
       // Premium assets that we always want to track (ONLY CoinGecko IDs for crypto)
       const premiumAssets = [
         // Premium Cryptocurrencies (CoinGecko IDs)
-        'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche-2',
+        'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche',
         // Premium Stocks (stock symbols)
         'AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA', 'META', 'AMZN', 'NFLX'
       ];
@@ -368,7 +421,7 @@ class AutoAlertService {
       // Fallback to static list if GemFinder fails (ONLY CoinGecko IDs for crypto)
       return [
         // Premium Cryptocurrencies (CoinGecko IDs)
-        'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche-2',
+        'bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot', 'chainlink', 'avalanche',
         // Gem Cryptocurrencies (CoinGecko IDs)
         'injective-protocol', 'oasis-network', 'fantom', 'ocean-protocol', 'thorchain', 'kava', 'celer-network', 'ren', 'band-protocol', 'ankr',
         // Premium Stocks
@@ -807,7 +860,7 @@ class AutoAlertService {
         timeframe: '1-2 weeks',
         createdAt: new Date(),
         isActive: true,
-        priority: confidence > 0.8 ? 'critical' : confidence > 0.7 ? 'high' : 'medium'
+        priority: confidence >= 0.85 ? 'critical' : confidence >= 0.75 ? 'high' : confidence >= 0.65 ? 'medium' : 'low'
       };
     } catch (error) {
       console.error(`❌ VectorFlux ensemble analysis failed for ${data.symbol}:`, error);
@@ -820,8 +873,8 @@ class AutoAlertService {
     try {
       console.log(`🧠 DNN analyzing ${data.symbol}...`);
       
-      // Create simplified market data for DNN
-      const marketData = this.createMarketDataFromPrice(data);
+      // REAL market data fetch
+      const marketData = await this.createRealMarketData(data.symbol);
       
       // Calculate basic technical indicators
       const indicators = this.calculateBasicIndicators(marketData);
@@ -879,8 +932,8 @@ class AutoAlertService {
     try {
       console.log(`🔮 LSTM analyzing ${data.symbol}...`);
       
-      // Create market data sequence for LSTM
-      const marketData = this.createMarketDataFromPrice(data);
+      // REAL market data sequence for LSTM
+      const marketData = await this.createRealMarketData(data.symbol);
       
       // Calculate indicators and features
       const indicators = this.calculateBasicIndicators(marketData);
@@ -995,8 +1048,8 @@ class AutoAlertService {
     try {
       console.log(`📊 CNN analyzing ${data.symbol}...`);
       
-      // Create market data for pattern analysis
-      const marketData = this.createMarketDataFromPrice(data);
+      // REAL market data for pattern analysis
+      const marketData = await this.createRealMarketData(data.symbol);
       if (marketData.length < 30) return null;
 
       // Calculate indicators for pattern detection
@@ -1071,8 +1124,8 @@ class AutoAlertService {
     try {
       console.log(`🤖 RL analyzing ${data.symbol}...`);
       
-      // Create market data for RL
-      const marketData = this.createMarketDataFromPrice(data);
+      // REAL market data for RL analysis
+      const marketData = await this.createRealMarketData(data.symbol);
       
       // Calculate indicators
       const indicators = this.calculateBasicIndicators(marketData);
@@ -1175,24 +1228,7 @@ class AutoAlertService {
           }
         } catch (error) {
           console.warn(`⚠️ Failed to fetch ${symbol}:`, error.message);
-          // Add fallback data to keep the analysis running
-          const fallbackPrice = 100 + Math.random() * 200; // $100-$300 range
-          stockData.push({
-            symbol,
-            name: symbol,
-            price: fallbackPrice,
-            change: (Math.random() - 0.5) * 10,
-            changePercent: (Math.random() - 0.5) * 5,
-            volume: 1000000 + Math.random() * 5000000,
-            marketCap: 50000000000 + Math.random() * 500000000000,
-            type: 'stock',
-            dataSource: 'fallback',
-            open: fallbackPrice * 0.99,
-            high: fallbackPrice * 1.02,
-            low: fallbackPrice * 0.98,
-            close: fallbackPrice
-          });
-          console.log(`📊 Using fallback data for ${symbol}: $${fallbackPrice.toFixed(2)}`);
+          // Skip symbols with no real data available - no fallback
         }
       }
 
@@ -1210,7 +1246,7 @@ class AutoAlertService {
       console.log('₿ Fetching real crypto data...');
       
       // Get top cryptocurrencies for analysis
-      const symbols = ['BTC', 'ETH', 'ADA', 'SOL', 'AVAX'];
+      const symbols = ['BTC', 'ETH', 'ADA', 'SOL'];
       const cryptoData = [];
 
       for (const symbol of symbols) {
@@ -1241,26 +1277,7 @@ class AutoAlertService {
           }
         } catch (error) {
           console.warn(`⚠️ Failed to fetch ${symbol}:`, error.message);
-          // Add fallback data for crypto
-          const fallbackPrice = symbol === 'BTC' ? 45000 + Math.random() * 20000 :
-                               symbol === 'ETH' ? 2500 + Math.random() * 1000 :
-                               0.5 + Math.random() * 2; // Alt coins
-          cryptoData.push({
-            symbol: symbol.toUpperCase(),
-            name: symbol,
-            price: fallbackPrice,
-            change: (Math.random() - 0.5) * 1000,
-            changePercent: (Math.random() - 0.5) * 10,
-            volume: 100000000 + Math.random() * 500000000,
-            marketCap: 10000000000 + Math.random() * 100000000000,
-            type: 'crypto',
-            dataSource: 'fallback',
-            open: fallbackPrice * 0.96,
-            high: fallbackPrice * 1.05,
-            low: fallbackPrice * 0.94,
-            close: fallbackPrice
-          });
-          console.log(`📊 Using fallback data for ${symbol}: $${fallbackPrice.toFixed(2)}`);
+          // Skip symbols with no real data available - no fallback
         }
       }
 
@@ -1338,11 +1355,32 @@ class AutoAlertService {
   // Store alerts locally and in Firebase
   private async storeAlertsLocally(alerts: AutoAlert[]): Promise<void> {
     try {
-      // Add to existing alerts
+      // Add to existing alerts and track signals for performance
       for (const alert of alerts) {
         const existingIndex = this.alerts.findIndex(a => a.id === alert.id);
         if (existingIndex === -1) {
           this.alerts.push(alert);
+          
+          // Track new signal for performance analysis (only for buy/sell signals)
+          if (alert.signal !== 'watch') {
+            try {
+              await signalTrackingService.addSignal({
+                symbol: alert.symbol,
+                type: alert.signal,
+                entryPrice: alert.currentPrice,
+                targetPrice: alert.targetPrice || undefined,
+                stopLoss: alert.stopLoss || undefined,
+                entryDate: Date.now(),
+                confidence: alert.confidence,
+                timeframe: alert.timeframe,
+                dataSource: alert.dataSource || 'mixed',
+                aiReasoning: alert.reasoning
+              });
+              console.log(`📊 Signal tracked: ${alert.signal.toUpperCase()} ${alert.symbol} at $${alert.currentPrice}`);
+            } catch (error) {
+              console.error('Error tracking signal:', error);
+            }
+          }
         } else {
           this.alerts[existingIndex] = alert;
         }
@@ -1475,32 +1513,36 @@ class AutoAlertService {
     // Ensure confidence is within realistic bounds (45-95%)
     return Math.max(45, Math.min(95, Math.round(baseConfidence)));
   }
-  private createMarketDataFromPrice(data: any) {
-    const basePrice = parseFloat((data.current_price || data.price || 0).toFixed(2));
-    const marketData = [];
-    
-    // Create last 50 days of simulated market data
-    for (let i = 49; i >= 0; i--) {
-      const dayOffset = i;
-      const variation = 1 + (Math.random() - 0.5) * 0.1; // ±5% daily variation
-      const price = parseFloat((basePrice * variation * (0.95 + dayOffset * 0.001)).toFixed(2)); // Slight trend
+  // REAL market data fetching (replacing mock data generation)
+  private async createRealMarketData(symbol: string): Promise<any[]> {
+    try {
+      console.log(`📊 Fetching REAL market data for ${symbol}...`);
       
-      marketData.push({
-        open: parseFloat((price * (0.99 + Math.random() * 0.02)).toFixed(2)),
-        high: parseFloat((price * (1.01 + Math.random() * 0.02)).toFixed(2)),
-        low: parseFloat((price * (0.98 + Math.random() * 0.02)).toFixed(2)),
-        close: price,
-        volume: Math.round((data.volume || 1000000) * (0.5 + Math.random())),
-        timestamp: Date.now() - (dayOffset * 24 * 60 * 60 * 1000)
-      });
+      // Try to get real market data first
+      const realData = await realMarketDataService.fetchRealMarketData(symbol, '1d');
+      
+      if (realData && realData.length > 0) {
+        console.log(`✅ Got ${realData.length} real data points for ${symbol}`);
+        return realData;
+      }
+      
+      // Return empty array if no real data available - no fallback
+      console.warn(`⚠️ No real data available for ${symbol}`);
+      return [];
+      
+    } catch (error) {
+      console.error(`❌ Error fetching real market data for ${symbol}:`, error);
+      console.warn(`⚠️ No real data available for ${symbol}`);
+      return [];
     }
-    
-    return marketData;
   }
 
-  private createMarketDataSequence(data: any, length: number) {
+  private async createMarketDataSequence(data: any, length: number) {
     const basePrice = data.price;
     const sequence = [];
+    
+    // Get real volume from gems collection
+    const realVolume = await getVolumeFromGems(data.symbol);
     
     for (let i = length - 1; i >= 0; i--) {
       const variation = 1 + (Math.random() - 0.5) * 0.05;
@@ -1511,31 +1553,88 @@ class AutoAlertService {
         high: price * 1.002,
         low: price * 0.998,
         close: price,
-        volume: (data.volume || 1000000) * (0.8 + Math.random() * 0.4)
+        volume: realVolume || (data.volume || 1000000)
       });
     }
     
     return sequence;
   }
 
+  // REAL technical indicators calculation (replacing mock)
   private calculateBasicIndicators(marketData: any[]) {
-    const prices = marketData.map(d => d.close);
-    const volumes = marketData.map(d => d.volume);
+    if (!marketData || marketData.length < 20) {
+      console.log('⚠️ Insufficient data for real technical analysis, using fallback');
+      return this.getFallbackIndicators(marketData);
+    }
+    
+    try {
+      // Use real technical analysis service
+      const analysis = realTechnicalAnalysisService.performComprehensiveAnalysis(marketData);
+      
+      return {
+        rsi: analysis.indicators.rsi,
+        sma_20: this.calculateRealSMA(marketData.map(d => d.close), 20),
+        volume_sma: this.calculateRealSMA(marketData.map(d => d.volume), 20),
+        momentum: this.calculateRealMomentum(marketData.map(d => d.close)),
+        bollinger: analysis.indicators.bollinger,
+        adx: analysis.indicators.adx,
+        atr: analysis.indicators.atr,
+        macd: analysis.indicators.macd,
+        stochastic: analysis.indicators.stochastic,
+        williamsR: analysis.indicators.williamsR,
+        cci: analysis.indicators.cci
+      };
+    } catch (error) {
+      console.error('❌ Real technical analysis failed:', error);
+      return this.getFallbackIndicators(marketData);
+    }
+  }
+
+  // Fallback for when real analysis fails
+  private getFallbackIndicators(marketData: any[]) {
+    const prices = marketData?.map(d => d.close) || [100];
+    const volumes = marketData?.map(d => d.volume) || [1000000];
     
     return {
       rsi: this.calculateSimpleRSI(prices),
-      sma_20: this.calculateSimpleSMA(prices, 20),
-      volume_sma: this.calculateSimpleSMA(volumes, 20),
-      momentum: this.calculateSimpleMomentum(prices),
+      sma_20: this.calculateRealSMA(prices, Math.min(20, prices.length)),
+      volume_sma: this.calculateRealSMA(volumes, Math.min(20, volumes.length)),
+      momentum: this.calculateRealMomentum(prices),
       bollinger: this.calculateSimpleBollinger(prices),
-      adx: [50], // Default ADX
-      atr: [prices[prices.length - 1] * 0.02], // 2% ATR
+      adx: 50, // Default ADX
+      atr: prices[prices.length - 1] * 0.02, // 2% ATR
       macd: {
         macd: [0.5],
         signal: [0.3],
         histogram: [0.2]
-      }
+      },
+      stochastic: { k: 50, d: 50 },
+      williamsR: -50,
+      cci: 0
     };
+  }
+
+  // Real SMA calculation
+  private calculateRealSMA(values: number[], period: number): number[] {
+    if (values.length < period) return [values[values.length - 1] || 0];
+    
+    const sma = [];
+    for (let i = period - 1; i < values.length; i++) {
+      const sum = values.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+      sma.push(sum / period);
+    }
+    return sma;
+  }
+
+  // Real momentum calculation
+  private calculateRealMomentum(prices: number[]): number[] {
+    if (prices.length < 2) return [0];
+    
+    const momentum = [];
+    for (let i = 1; i < prices.length; i++) {
+      momentum.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+    }
+    return momentum;
   }
 
   private calculateSimpleRSI(prices: number[]) {

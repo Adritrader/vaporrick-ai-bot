@@ -14,19 +14,20 @@ const getEnvVar = (key: string, defaultValue: string = ''): string => {
   
   // For development, provide working defaults
   const devConfig: Record<string, string> = {
-    ALPHA_VANTAGE_API_KEY: '54LXQIOJZZ3KPXAC', // From .env file
+    ALPHA_VANTAGE_API_KEY: 'CPIIA8O6V6AWJSCE', // Updated with your real API key
+    TWELVE_DATA_API_KEY: '84fe0edd19164ee4981380c034bb4826', // Add Twelve Data key
   };
   
   return devConfig[key] || defaultValue;
 };
 
 export const API_CONFIG = {
-  // Alpha Vantage (for stocks) - Free tier: 500 requests/day, 5 requests/minute
+  // Alpha Vantage (for stocks) - With real API key: 500 requests/day, 5 requests/minute
   // Get your free API key at: https://www.alphavantage.co/support/#api-key
   ALPHA_VANTAGE: {
-    API_KEY: getEnvVar('ALPHA_VANTAGE_API_KEY', '54LXQIOJZZ3KPXAC'), // Use real key as fallback
+    API_KEY: getEnvVar('ALPHA_VANTAGE_API_KEY', 'CPIIA8O6V6AWJSCE'), // Use real key as fallback
     BASE_URL: 'https://www.alphavantage.co/query',
-    RATE_LIMIT: 5 * 60 * 1000, // 5 minutes between requests for free tier
+    RATE_LIMIT: 12 * 1000, // 12 seconds between requests (5 per minute = safer)
     DEMO_KEY: 'demo' // Keep for fallback
   },
 
@@ -34,8 +35,17 @@ export const API_CONFIG = {
   // No API key required for basic usage
   COINGECKO: {
     BASE_URL: 'https://api.coingecko.com/api/v3',
-    RATE_LIMIT: 60 * 1000 / 25, // ~2.4 seconds between requests (conservative for free tier)
+    RATE_LIMIT: 30 * 1000, // 30 seconds between requests (improved rate limiting)
     PRO_API_KEY: getEnvVar('COINGECKO_PRO_API_KEY', ''), // Optional: for higher rate limits
+  },
+
+  // CoinPaprika (for crypto) - Free tier: 25,000 requests/month (~833/day)
+  // No API key required for free tier - Much better than CoinGecko's rate limits
+  COINPAPRIKA: {
+    BASE_URL: 'https://api.coinpaprika.com/v1',
+    RATE_LIMIT: 100, // 100ms between requests (10 req/sec limit)
+    FREE_TIER_LIMIT: 833, // requests per day (~25k/month)
+    FEATURES: ['prices', 'historical', 'market_data', 'search']
   },
 
   // Yahoo Finance (for stocks and crypto) - Free but unofficial
@@ -44,18 +54,22 @@ export const API_CONFIG = {
     RATE_LIMIT: 2000, // 2 seconds between requests
   },
 
-  // Twelve Data (for stocks) - Free tier: 800 requests/day
-  // Get your free API key at: https://twelvedata.com/
+  // Twelve Data (for stocks) - Free tier: 800 requests/day (EXCELLENT for stocks!)
+  // Get your free API key at: https://twelvedata.com/pricing
+  // Twelve Data (for stocks) - Free tier: 800 requests/day (EXCELLENT for stocks!)
+  // Get your free API key at: https://twelvedata.com/pricing
   TWELVE_DATA: {
-    API_KEY: getEnvVar('TWELVE_DATA_API_KEY', 'YOUR_TWELVE_DATA_API_KEY'), // Secure environment variable
+    API_KEY: getEnvVar('TWELVE_DATA_API_KEY', '84fe0edd19164ee4981380c034bb4826'),
     BASE_URL: 'https://api.twelvedata.com',
-    RATE_LIMIT: 60 * 1000, // 1 minute between requests for free tier
+    RATE_LIMIT: 60 * 1000, // 1 minute between requests (conservative)
+    FEATURES: ['time_series', 'quote', 'real_time', 'technical_indicators'],
+    FREE_TIER_LIMIT: 800 // requests per day
   },
 
   // Financial Modeling Prep - Free tier: 250 requests/day
   // Get your free API key at: https://financialmodelingprep.com/
   FMP: {
-    API_KEY: getEnvVar('FMP_API_KEY', 'YOUR_FMP_API_KEY'), // Secure environment variable
+    API_KEY: getEnvVar('FMP_API_KEY', 'YOUR_FMP_API_KEY'),
     BASE_URL: 'https://financialmodelingprep.com/api/v3',
     RATE_LIMIT: 5 * 60 * 1000, // 5 minutes between requests
   },

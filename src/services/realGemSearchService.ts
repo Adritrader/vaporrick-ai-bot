@@ -1,6 +1,7 @@
 import { realDataService } from './realDataService';
 import { enhancedAIService } from './enhancedAIService';
 import { vectorFluxAIService } from './vectorFluxAIService';
+import RealStockAPIService from './realStockAPIService';
 import { Alert } from 'react-native';
 
 // Simple logger replacement
@@ -66,7 +67,7 @@ class RealGemSearchService {
   // Top crypto symbols to search (CoinGecko IDs)
   private readonly TOP_CRYPTO_SYMBOLS = [
     'bitcoin', 'ethereum', 'solana', 'cardano', 'polkadot', 'chainlink',
-    'avalanche-2', 'polygon', 'uniswap', 'arbitrum', 'optimism', 'sui',
+    'avalanche', 'uniswap', 'arbitrum', 'optimism', 'sui',
     'render-token', 'injective-protocol', 'ocean-protocol', 'fetch-ai',
     'thorchain', 'kava', 'oasis-network', 'fantom', 'near', 'algorand',
     'vechain', 'the-sandbox', 'decentraland', 'filecoin', 'aave', 'compound',
@@ -226,14 +227,16 @@ class RealGemSearchService {
   }
 
   /**
-   * Get market data with retry logic
+   * Get market data with retry logic and real API fallbacks
    */
   private async getMarketDataWithRetry(symbol: string, type: 'crypto' | 'stock', retries = 2): Promise<any> {
+    // First, try the original service (Alpha Vantage with rotation)
     for (let i = 0; i <= retries; i++) {
       try {
         const marketData = await realDataService.getMarketData(symbol);
         
         if (marketData && marketData.price && marketData.price > 0 && marketData.source === 'real') {
+          console.log(`✅ Original API success: ${symbol} = $${marketData.price}`);
           return marketData;
         }
         
@@ -242,14 +245,52 @@ class RealGemSearchService {
           await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Progressive delay
         }
       } catch (error) {
+        console.warn(`⚠️ Original API attempt ${i + 1} failed for ${symbol}:`, error);
         if (i === retries) {
-          throw error;
+          // Don't throw yet - we have fallbacks
+          break;
         }
         await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
       }
     }
     
-    throw new Error(`Failed to get real market data for ${symbol} after ${retries + 1} attempts`);
+    // If original service failed and this is a stock, try real alternative APIs
+    if (type === 'stock') {
+      console.log(`🔄 Original APIs failed for ${symbol}, trying real stock API alternatives...`);
+      
+      try {
+        const realStockResults = await RealStockAPIService.fetchRealStockData([symbol]);
+        
+        if (realStockResults.length > 0) {
+          const stockData = realStockResults[0];
+          console.log(`✅ Real stock API success: ${symbol} = $${stockData.price} (${stockData.source})`);
+          
+          // Convert to expected format
+          return {
+            symbol: stockData.symbol,
+            name: stockData.name,
+            price: stockData.price,
+            change24h: stockData.change,
+            changePercent: stockData.changePercent,
+            volume: stockData.volume,
+            marketCap: stockData.marketCap,
+            type: 'stock',
+            source: 'real',
+            apiSource: stockData.source,
+            timestamp: stockData.timestamp
+          };
+        }
+      } catch (fallbackError) {
+        console.error(`❌ Real stock API fallback failed for ${symbol}:`, fallbackError);
+      }
+    }
+    
+    // For crypto, we could add similar fallbacks here if needed
+    if (type === 'crypto') {
+      console.log(`⚠️ No crypto API fallbacks implemented yet for ${symbol}`);
+    }
+    
+    throw new Error(`All APIs failed for ${symbol}. No real data available.`);
   }
 
   /**
@@ -462,7 +503,7 @@ class RealGemSearchService {
       'cardano': 'Cardano',
       'polkadot': 'Polkadot',
       'chainlink': 'Chainlink',
-      'avalanche-2': 'Avalanche',
+      'avalanche': 'Avalanche',
       'polygon': 'Polygon',
       'uniswap': 'Uniswap',
       'render-token': 'Render',
